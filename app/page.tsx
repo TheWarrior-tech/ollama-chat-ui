@@ -1,10 +1,11 @@
 'use client';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSession, signOut } from 'next-auth/react';
-import { useRouter, usePathname } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import ChatWindow from '@/components/ChatWindow';
 import ChatInput from '@/components/ChatInput';
+import ShareToast, { useShareToast } from '@/components/ShareToast';
 import { Message, Conversation } from '@/types';
 
 export default function Home() {
@@ -19,6 +20,8 @@ export default function Home() {
   const [webSearch, setWebSearch] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const activeConvoRef = useRef<Conversation | null>(null);
+  const shareToast = useShareToast();
+
   const activeConvo = conversations.find(c => c.id === activeId) ?? null;
   activeConvoRef.current = activeConvo;
 
@@ -58,6 +61,17 @@ export default function Home() {
     setActiveId(c.id);
   }, [selectedModel]);
 
+  const handleShare = async (id: string) => {
+    await fetch(`/api/conversations/${id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ shared: true }),
+    });
+    setConversations(p => p.map(c => c.id === id ? { ...c, shared: true } : c));
+    const url = `${window.location.origin}/share/${id}`;
+    await navigator.clipboard.writeText(url).catch(() => {});
+    shareToast.show(url);
+  };
+
   const sendMessage = async (content: string) => {
     if (!activeId || isStreaming) return;
     const tempUserId = 'temp-user-' + Date.now();
@@ -70,12 +84,10 @@ export default function Home() {
       title: c.title === 'New Chat' ? content.slice(0, 45) : c.title
     } : c));
 
-    // Update title if first message
     if (activeConvo?.title === 'New Chat') {
       fetch(`/api/conversations/${activeId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: content.slice(0, 45) }) }).catch(() => {});
     }
 
-    // Save user message to DB
     fetch(`/api/conversations/${activeId}/messages`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ role: 'user', content }),
@@ -85,12 +97,10 @@ export default function Home() {
     abortRef.current = new AbortController();
 
     try {
-      // Fetch memory
       const memRes = await fetch('/api/memory');
       const memData = await memRes.json();
-      const memories: string[] = memData.memories || [];
+      const memories: string[] = (memData.memories || []).map((m: any) => m.content ?? m);
 
-      let augmentedContent = content;
       let sources: any[] = [];
 
       if (webSearch) {
@@ -112,15 +122,13 @@ export default function Home() {
 
       const systemParts: string[] = [
         'You are NeuralChat, a helpful and knowledgeable AI assistant.',
-        'Always give full, detailed, well-structured answers.',
+        'Always give full, detailed, well-structured answers. Never truncate or summarise prematurely.',
       ];
-
       if (memories.length > 0) {
-        systemParts.push('', 'User memories (things you know about this user):', ...memories.map(m => `- ${m}`));
+        systemParts.push('', 'Things you know about this user:', ...memories.map(m => `- ${m}`));
       }
-
       if (sources.length > 0) {
-        systemParts.push('', 'Web search results (cite as [1], [2] etc):',
+        systemParts.push('', 'Web search results (cite inline as [1], [2] etc):',
           ...sources.map((s: any, i: number) => `[${i+1}] ${s.title}\n${s.snippet}\nURL: ${s.url}`));
       }
 
@@ -161,14 +169,12 @@ export default function Home() {
         }
       }
 
-      // Save assistant message to DB
       fetch(`/api/conversations/${activeId}/messages`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role: 'assistant', content: fullContent, thinking: fullThinking || undefined, sources: sources.length ? sources : undefined }),
       }).catch(() => {});
 
-      // Auto-save memory: extract key facts from short replies
-      if (content.toLowerCase().includes('my name is') || content.toLowerCase().includes('i am ') || content.toLowerCase().includes('i like ')) {
+      if (content.toLowerCase().match(/my name is|i am |i like |i prefer |i use |i work/)) {
         fetch('/api/memory', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: content.slice(0, 200) }) }).catch(() => {});
       }
 
@@ -185,16 +191,15 @@ export default function Home() {
 
   if (status === 'loading') {
     return (
-      <div className="min-h-screen bg-bg flex items-center justify-center">
-        <div className="w-8 h-8 rounded-full border-2 border-accent border-t-transparent animate-spin" />
+      <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg)' }}>
+        <div className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: 'var(--accent)', borderTopColor: 'transparent' }} />
       </div>
     );
   }
-
   if (status === 'unauthenticated') return null;
 
   return (
-    <div className="flex h-screen overflow-hidden bg-bg text-text relative">
+    <div className="flex h-screen overflow-hidden" style={{ background: 'var(--bg)', color: 'var(--text)' }}>
       <div className="ambient-bg" />
       <Sidebar
         open={sidebarOpen}
@@ -211,36 +216,50 @@ export default function Home() {
           setConversations(p => p.filter(c => c.id !== id));
           if (activeId === id) setActiveId(conversations.find(c => c.id !== id)?.id ?? null);
         }}
-        onShare={async id => {
-          await fetch(`/api/conversations/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ shared: true }) });
-          setConversations(p => p.map(c => c.id === id ? { ...c, shared: true } : c));
-          const url = `${window.location.origin}/share/${id}`;
-          await navigator.clipboard.writeText(url);
-          alert(`Share link copied!\n${url}`);
-        }}
+        onShare={handleShare}
         onToggle={() => setSidebarOpen(o => !o)}
         onSignOut={() => signOut({ callbackUrl: '/auth' })}
       />
       <div className="flex flex-col flex-1 min-w-0 h-full relative z-10">
-        <header className="flex items-center justify-between px-6 py-3.5 border-b border-border glass flex-shrink-0">
+        {/* Header */}
+        <header className="flex items-center justify-between px-6 py-3.5 flex-shrink-0 glass" style={{ borderBottom: '1px solid var(--border)' }}>
           <div className="flex items-center gap-3">
             {!sidebarOpen && (
-              <button onClick={() => setSidebarOpen(true)} className="p-2 rounded-xl hover:bg-elevated text-muted hover:text-text transition-all">
+              <button onClick={() => setSidebarOpen(true)} className="p-2 rounded-xl transition-all" style={{ color: 'var(--muted)' }}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
               </button>
             )}
             <div className="flex items-center gap-2">
-              <div className="relative"><div className="w-2 h-2 rounded-full bg-emerald-400" /><div className="absolute inset-0 w-2 h-2 rounded-full bg-emerald-400 animate-ping opacity-60" /></div>
-              <span className="text-xs font-medium text-text-dim">{selectedModel || 'No model'}</span>
+              <div className="relative">
+                <div className="w-2 h-2 rounded-full bg-emerald-400" />
+                <div className="absolute inset-0 w-2 h-2 rounded-full bg-emerald-400 animate-ping opacity-60" />
+              </div>
+              <span className="text-xs font-medium" style={{ color: 'var(--text-dim)' }}>{selectedModel || 'No model'}</span>
             </div>
           </div>
-          <span className="text-[10px] font-semibold tracking-[0.2em] text-muted uppercase">NeuralChat</span>
+          <div className="flex items-center gap-3">
+            {activeId && (
+              <button
+                onClick={() => handleShare(activeId)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all"
+                style={{ background: 'var(--elevated)', border: '1px solid var(--border)', color: 'var(--text-dim)' }}
+                title="Share this chat"
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+                Share
+              </button>
+            )}
+            <span className="text-[10px] font-semibold tracking-[0.2em] uppercase" style={{ color: 'var(--muted)' }}>NeuralChat</span>
+          </div>
         </header>
         <ChatWindow messages={activeConvo?.messages ?? []} isStreaming={isStreaming} />
-        <ChatInput onSend={sendMessage} isStreaming={isStreaming}
+        <ChatInput
+          onSend={sendMessage} isStreaming={isStreaming}
           onStop={() => { abortRef.current?.abort(); setIsStreaming(false); }}
-          webSearch={webSearch} onToggleWeb={() => setWebSearch(w => !w)} />
+          webSearch={webSearch} onToggleWeb={() => setWebSearch(w => !w)}
+        />
       </div>
+      <ShareToast url={shareToast.url} visible={shareToast.visible} onClose={shareToast.hide} />
     </div>
   );
 }
