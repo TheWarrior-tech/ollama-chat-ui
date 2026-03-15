@@ -9,28 +9,66 @@ server:
   bind_address: "0.0.0.0"
   port: 8080
   public_instance: false
+  limiter: false
+  image_proxy: false
 
 search:
   safe_search: 0
   autocomplete: ""
   default_lang: "en"
+  ban_time_on_fail: 5
+  max_ban_time_on_fail: 120
   formats:
     - html
     - json
+
+outgoing:
+  request_timeout: 10.0
+  max_request_timeout: 20.0
+  useragent_suffix: ""
+  pool_connections: 100
+  pool_maxsize: 20
+  enable_http2: true
 
 engines:
   - name: google
     engine: google
     shortcut: g
+    use_mobile_ui: false
+    disabled: false
+
   - name: bing
     engine: bing
     shortcut: b
+    disabled: false
+
   - name: duckduckgo
     engine: duckduckgo
     shortcut: d
+    disabled: false
+
   - name: wikipedia
     engine: wikipedia
     shortcut: w
+    disabled: false
+
+  - name: openweathermap
+    engine: openweathermap
+    shortcut: owm
+    api_key: !!
+    disabled: true
+
+  - name: wolframalpha
+    engine: wolframalpha webapp
+    shortcut: wa
+    disabled: false
+
+  - name: brave
+    engine: brave
+    shortcut: br
+    disabled: false
 
 ui:
   static_use_hash: true
+  default_theme: simple
+  center_alignment: true

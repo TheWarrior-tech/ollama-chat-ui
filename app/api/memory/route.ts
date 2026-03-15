@@ -7,8 +7,8 @@ export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session?.user) return NextResponse.json({ memories: [] });
   const userId = (session.user as any).id;
-  const memories = await prisma.memory.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, take: 20 });
-  return NextResponse.json({ memories: memories.map(m => m.content) });
+  const memories = await prisma.memory.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, take: 30 });
+  return NextResponse.json({ memories: memories.map(m => ({ id: m.id, content: m.content, createdAt: m.createdAt })) });
 }
 
 export async function POST(req: NextRequest) {
@@ -16,6 +16,19 @@ export async function POST(req: NextRequest) {
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const userId = (session.user as any).id;
   const { content } = await req.json();
-  await prisma.memory.create({ data: { userId, content } });
+  const mem = await prisma.memory.create({ data: { userId, content } });
+  return NextResponse.json(mem);
+}
+
+export async function DELETE(req: NextRequest) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const userId = (session.user as any).id;
+  const { id, all } = await req.json();
+  if (all) {
+    await prisma.memory.deleteMany({ where: { userId } });
+  } else if (id) {
+    await prisma.memory.delete({ where: { id, userId } });
+  }
   return NextResponse.json({ ok: true });
 }

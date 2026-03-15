@@ -1,6 +1,7 @@
 'use client';
 import { Conversation } from '@/types';
-import { Plus, Trash2, X, Cpu, ChevronDown, MessageSquare, Share2, LogOut, User } from 'lucide-react';
+import { Plus, Trash2, X, Cpu, ChevronDown, MessageSquare, Share2, LogOut, User, Settings } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 interface Props {
   open: boolean; conversations: Conversation[]; activeId: string | null;
@@ -12,6 +13,7 @@ interface Props {
 }
 
 export default function Sidebar({ open, conversations, activeId, models, selectedModel, userName, onModelChange, onSelect, onNew, onDelete, onShare, onToggle, onSignOut }: Props) {
+  const router = useRouter();
   if (!open) return null;
   return (
     <aside className="w-[260px] flex-shrink-0 flex flex-col h-full bg-sidebar border-r border-border relative z-20">
@@ -63,7 +65,7 @@ export default function Sidebar({ open, conversations, activeId, models, selecte
             <span className="text-xs truncate flex-1">{c.title}</span>
             <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all ml-1 flex-shrink-0">
               <button onClick={e => { e.stopPropagation(); onShare(c.id); }}
-                className="p-1 rounded-lg hover:text-blue-400 text-muted transition-all" title="Copy share link">
+                title="Copy share link" className="p-1 rounded-lg hover:text-blue-400 text-muted transition-all">
                 <Share2 size={10} />
               </button>
               <button onClick={e => { e.stopPropagation(); onDelete(c.id); }}
@@ -84,9 +86,14 @@ export default function Sidebar({ open, conversations, activeId, models, selecte
             <p className="text-xs font-medium text-text truncate">{userName}</p>
             <p className="text-[10px] text-muted">Local account</p>
           </div>
-          <button onClick={onSignOut} className="p-1.5 rounded-lg hover:bg-elevated text-muted hover:text-red-400 transition-all" title="Sign out">
-            <LogOut size={12} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button onClick={() => router.push('/settings')} className="p-1.5 rounded-lg hover:bg-elevated text-muted hover:text-text-dim transition-all" title="Settings">
+              <Settings size={12} />
+            </button>
+            <button onClick={onSignOut} className="p-1.5 rounded-lg hover:bg-elevated text-muted hover:text-red-400 transition-all" title="Sign out">
+              <LogOut size={12} />
+            </button>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]" />
