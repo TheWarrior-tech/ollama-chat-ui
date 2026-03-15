@@ -5,32 +5,36 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { nightOwl } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { Bot, User, Copy, Check, ChevronDown, ChevronUp, Brain, ExternalLink, Globe } from 'lucide-react';
+import { Bot, User, Copy, Check, ChevronDown, ChevronUp, Brain, ExternalLink, Globe, Sparkles } from 'lucide-react';
 
 function CopyBtn({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <button onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-      className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] text-muted hover:text-text hover:bg-white/5 transition-all">
-      {copied ? <><Check size={10} className="text-green-400" />Copied</> : <><Copy size={10} />Copy</>}
+      className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-medium text-muted hover:text-text hover:bg-white/8 transition-all">
+      {copied ? <><Check size={10} className="text-emerald-400" />Copied</> : <><Copy size={10} />Copy</>}
     </button>
   );
 }
 
 function ThinkingBlock({ thinking, isStreaming }: { thinking: string; isStreaming: boolean }) {
   const [open, setOpen] = useState(true);
-  useEffect(() => { if (!isStreaming) setOpen(false); }, [isStreaming]);
+  useEffect(() => { if (!isStreaming) setTimeout(() => setOpen(false), 600); }, [isStreaming]);
   return (
-    <div className="mb-3 rounded-xl border border-purple-500/20 bg-purple-500/5 overflow-hidden">
+    <div className="mb-4 rounded-2xl border border-violet/20 bg-violet/5 overflow-hidden shadow-card">
       <button onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-purple-500/10 transition-colors">
-        <Brain size={12} className={`text-purple-400 flex-shrink-0 ${isStreaming ? 'animate-pulse' : ''}`} />
-        <span className="text-xs text-purple-300 font-medium flex-1">{isStreaming ? 'Thinking...' : 'Thought process'}</span>
-        <span className="text-[10px] text-purple-400/60">{thinking.length} chars</span>
-        {open ? <ChevronUp size={11} className="text-purple-400/60" /> : <ChevronDown size={11} className="text-purple-400/60" />}
+        className="w-full flex items-center gap-2.5 px-4 py-3 text-left hover:bg-violet/8 transition-all">
+        <div className={`w-5 h-5 rounded-lg bg-violet/20 border border-violet/30 flex items-center justify-center flex-shrink-0 ${isStreaming ? 'animate-pulse' : ''}`}>
+          <Brain size={11} className="text-violet-400" />
+        </div>
+        <span className="text-xs font-semibold text-violet-300 flex-1">
+          {isStreaming ? 'Reasoning...' : 'View reasoning'}
+        </span>
+        <span className="text-[10px] text-violet-400/50 font-mono">{(thinking.length / 1000).toFixed(1)}k chars</span>
+        {open ? <ChevronUp size={12} className="text-violet-400/50" /> : <ChevronDown size={12} className="text-violet-400/50" />}
       </button>
       {open && (
-        <div className="px-4 pb-3 pt-1 text-[11px] text-purple-200/50 leading-relaxed font-mono whitespace-pre-wrap max-h-56 overflow-y-auto scrollbar-hide border-t border-purple-500/10">
+        <div className="px-4 pb-4 pt-2 text-[11px] text-violet-200/40 leading-relaxed font-mono whitespace-pre-wrap max-h-60 overflow-y-auto scrollbar-hide border-t border-violet/10">
           {thinking}
         </div>
       )}
@@ -41,25 +45,27 @@ function ThinkingBlock({ thinking, isStreaming }: { thinking: string; isStreamin
 function SourcesBlock({ sources }: { sources: { title: string; url: string; snippet: string }[] }) {
   const [open, setOpen] = useState(true);
   return (
-    <div className="mb-3 rounded-xl border border-blue-500/20 bg-blue-500/5 overflow-hidden">
+    <div className="mb-4 rounded-2xl border border-blue-500/20 bg-blue-500/5 overflow-hidden shadow-card">
       <button onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-blue-500/10 transition-colors">
-        <Globe size={12} className="text-blue-400 flex-shrink-0" />
-        <span className="text-xs text-blue-300 font-medium flex-1">Web Sources</span>
-        <span className="text-[10px] text-blue-400/60 bg-blue-500/10 px-2 py-0.5 rounded-full">{sources.length}</span>
-        {open ? <ChevronUp size={11} className="text-blue-400/60" /> : <ChevronDown size={11} className="text-blue-400/60" />}
+        className="w-full flex items-center gap-2.5 px-4 py-3 text-left hover:bg-blue-500/8 transition-all">
+        <div className="w-5 h-5 rounded-lg bg-blue-500/20 border border-blue-500/30 flex items-center justify-center flex-shrink-0">
+          <Globe size={11} className="text-blue-400" />
+        </div>
+        <span className="text-xs font-semibold text-blue-300 flex-1">Web Sources</span>
+        <span className="text-[10px] text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full font-medium">{sources.length} results</span>
+        {open ? <ChevronUp size={12} className="text-blue-400/50" /> : <ChevronDown size={12} className="text-blue-400/50" />}
       </button>
       {open && (
-        <div className="px-3 pb-3 pt-1 border-t border-blue-500/10 grid grid-cols-1 gap-1.5">
+        <div className="border-t border-blue-500/10 divide-y divide-blue-500/5">
           {sources.map((s, i) => (
             <a key={i} href={s.url} target="_blank" rel="noopener noreferrer"
-              className="flex items-start gap-2.5 p-2.5 rounded-lg hover:bg-blue-500/10 transition-colors group">
-              <span className="text-[10px] text-blue-400/60 font-mono mt-0.5 flex-shrink-0 w-4">[{i+1}]</span>
-              <div className="min-w-0">
-                <p className="text-xs text-blue-200 font-medium truncate group-hover:text-blue-100">{s.title}</p>
-                <p className="text-[10px] text-muted mt-0.5 line-clamp-2 leading-relaxed">{s.snippet}</p>
+              className="flex items-start gap-3 px-4 py-3 hover:bg-blue-500/8 transition-all group">
+              <span className="text-[10px] font-mono text-blue-400/50 mt-0.5 w-5 flex-shrink-0">[{i+1}]</span>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-blue-200 truncate group-hover:text-white transition-colors">{s.title}</p>
+                <p className="text-[10px] text-muted mt-1 line-clamp-2 leading-relaxed">{s.snippet}</p>
               </div>
-              <ExternalLink size={10} className="text-muted/40 flex-shrink-0 mt-1 group-hover:text-blue-400 transition-colors" />
+              <ExternalLink size={10} className="text-muted/30 flex-shrink-0 mt-1 group-hover:text-blue-400 transition-colors" />
             </a>
           ))}
         </div>
@@ -70,13 +76,20 @@ function SourcesBlock({ sources }: { sources: { title: string; url: string; snip
 
 function ThinkingDots() {
   return (
-    <div className="flex items-center gap-1.5 py-1">
-      <span className="w-1.5 h-1.5 rounded-full bg-accent dot-1 inline-block" />
-      <span className="w-1.5 h-1.5 rounded-full bg-accent dot-2 inline-block" />
-      <span className="w-1.5 h-1.5 rounded-full bg-accent dot-3 inline-block" />
+    <div className="flex items-center gap-1.5 py-2">
+      {[0,1,2].map(i => (
+        <span key={i} className={`w-1.5 h-1.5 rounded-full bg-gradient-accent inline-block dot-${i+1}`} />
+      ))}
     </div>
   );
 }
+
+const SUGGESTIONS = [
+  { icon: Sparkles, text: 'Explain quantum entanglement simply', color: 'text-yellow-400' },
+  { icon: Brain, text: 'Help me debug my code', color: 'text-violet-400' },
+  { icon: Globe, text: 'Search the web for latest AI news', color: 'text-blue-400' },
+  { icon: Bot, text: 'Write a creative short story', color: 'text-emerald-400' },
+];
 
 export default function ChatWindow({ messages, isStreaming }: { messages: Message[]; isStreaming: boolean }) {
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -86,26 +99,25 @@ export default function ChatWindow({ messages, isStreaming }: { messages: Messag
 
   if (messages.length === 0) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
+      <div className="flex-1 flex flex-col items-center justify-center text-center px-6 relative">
+        {/* Hero */}
         <div className="relative mb-6">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-accent/20 to-purple-500/20 border border-accent/20 flex items-center justify-center">
-            <Bot size={28} className="text-accent" />
+          <div className="w-20 h-20 rounded-3xl bg-gradient-accent flex items-center justify-center shadow-glow-lg">
+            <Bot size={34} className="text-white" />
           </div>
-          <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-green-400/20 border border-green-400/40 flex items-center justify-center">
-            <div className="w-2 h-2 rounded-full bg-green-400" />
+          <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-emerald-400/20 border-2 border-bg flex items-center justify-center">
+            <div className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
           </div>
         </div>
-        <h1 className="text-3xl font-bold text-text mb-2 tracking-tight bg-gradient-to-r from-white to-white/60 bg-clip-text">NeuralChat</h1>
-        <p className="text-muted text-sm max-w-xs leading-relaxed mb-8">Your local AI assistant. Fast, private, and always on-device.</p>
-        <div className="grid grid-cols-2 gap-2 max-w-sm w-full">
-          {[
-            { icon: '⚡', text: 'Explain a concept' },
-            { icon: '🐍', text: 'Write Python code' },
-            { icon: '🔍', text: 'Debug my code' },
-            { icon: '🌐', text: 'Search the web' },
-          ].map(s => (
-            <div key={s.text} className="p-3 border border-border/60 rounded-xl text-xs text-muted hover:border-accent/30 hover:bg-accent/5 hover:text-text-dim cursor-pointer transition-all text-left group">
-              <span className="mr-1.5">{s.icon}</span>{s.text}
+        <h1 className="text-4xl font-bold tracking-tight mb-3">
+          <span className="bg-gradient-to-r from-white via-white to-text-dim bg-clip-text text-transparent">NeuralChat</span>
+        </h1>
+        <p className="text-text-dim text-sm max-w-xs leading-relaxed mb-10">Your premium local AI assistant. All models, all private, zero cloud.</p>
+        <div className="grid grid-cols-2 gap-2.5 max-w-sm w-full">
+          {SUGGESTIONS.map((s, i) => (
+            <div key={i} className="group p-4 rounded-2xl border border-border hover:border-border-med bg-surface/50 hover:bg-elevated cursor-pointer transition-all hover:shadow-card text-left">
+              <s.icon size={16} className={`${s.color} mb-2.5`} />
+              <p className="text-xs text-text-dim group-hover:text-text transition-colors leading-relaxed">{s.text}</p>
             </div>
           ))}
         </div>
@@ -115,35 +127,29 @@ export default function ChatWindow({ messages, isStreaming }: { messages: Messag
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="max-w-2xl mx-auto px-4 py-6 space-y-6">
+      <div className="max-w-2xl mx-auto px-4 py-8 space-y-8">
         {messages.map((msg, i) => {
           const isLast = i === messages.length - 1;
           const streaming = isLast && isStreaming;
           return (
             <div key={msg.id} className="msg-animate">
               {msg.role === 'user' ? (
-                <div className="flex justify-end">
-                  <div className="flex items-end gap-2.5 max-w-[80%]">
-                    <div className="bg-surface border border-border-light rounded-2xl rounded-br-md px-4 py-3 text-sm text-text leading-relaxed">
-                      {msg.content}
-                    </div>
-                    <div className="w-7 h-7 rounded-full bg-elevated border border-border flex items-center justify-center flex-shrink-0">
-                      <User size={12} className="text-muted" />
-                    </div>
+                <div className="flex justify-end gap-3">
+                  <div className="max-w-[78%] bg-elevated border border-border-med rounded-2xl rounded-br-md px-5 py-3.5 text-sm text-text leading-relaxed shadow-card">
+                    {msg.content}
+                  </div>
+                  <div className="w-8 h-8 rounded-xl bg-elevated border border-border-med flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <User size={13} className="text-muted-light" />
                   </div>
                 </div>
               ) : (
-                <div className="flex items-start gap-3">
-                  <div className="w-7 h-7 rounded-full bg-gradient-to-br from-accent/30 to-purple-500/20 border border-accent/30 flex items-center justify-center flex-shrink-0 mt-0.5 shadow-lg shadow-accent/10">
-                    <Bot size={13} className="text-accent" />
+                <div className="flex items-start gap-3.5">
+                  <div className="w-8 h-8 rounded-xl bg-gradient-accent flex items-center justify-center flex-shrink-0 mt-0.5 shadow-glow-sm">
+                    <Bot size={14} className="text-white" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    {msg.sources && msg.sources.length > 0 && (
-                      <SourcesBlock sources={msg.sources} />
-                    )}
-                    {msg.thinking && (
-                      <ThinkingBlock thinking={msg.thinking} isStreaming={streaming && msg.content === ''} />
-                    )}
+                    {msg.sources && msg.sources.length > 0 && <SourcesBlock sources={msg.sources} />}
+                    {msg.thinking && <ThinkingBlock thinking={msg.thinking} isStreaming={streaming && msg.content === ''} />}
                     {msg.content === '' && !msg.thinking && streaming ? (
                       <ThinkingDots />
                     ) : (
@@ -153,19 +159,26 @@ export default function ChatWindow({ messages, isStreaming }: { messages: Messag
                             const match = /language-(\w+)/.exec(className || '');
                             const code = String(children).replace(/\n$/, '');
                             return match ? (
-                              <div className="rounded-xl overflow-hidden border border-border/60 my-3">
-                                <div className="flex items-center justify-between px-4 py-2 bg-[#0d0d1a] border-b border-border/60">
-                                  <span className="text-[10px] text-accent/80 font-mono uppercase tracking-widest">{match[1]}</span>
+                              <div className="rounded-2xl overflow-hidden border border-border-med my-4 shadow-card">
+                                <div className="flex items-center justify-between px-4 py-2.5 bg-[#080812] border-b border-border">
+                                  <div className="flex items-center gap-2">
+                                    <div className="flex gap-1.5">
+                                      <div className="w-2.5 h-2.5 rounded-full bg-red-500/60" />
+                                      <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/60" />
+                                      <div className="w-2.5 h-2.5 rounded-full bg-green-500/60" />
+                                    </div>
+                                    <span className="text-[10px] text-accent-light/70 font-mono uppercase tracking-widest ml-1">{match[1]}</span>
+                                  </div>
                                   <CopyBtn text={code} />
                                 </div>
                                 <SyntaxHighlighter style={nightOwl} language={match[1]} PreTag="div"
-                                  customStyle={{ margin: 0, background: '#080810', padding: '14px 16px', fontSize: '0.78rem', lineHeight: '1.65' }}
+                                  customStyle={{ margin:0, background:'#06060f', padding:'16px 18px', fontSize:'0.78rem', lineHeight:'1.7' }}
                                 >{code}</SyntaxHighlighter>
                               </div>
-                            ) : <code className="bg-[#1a1a2e] text-purple-400 px-1.5 py-0.5 rounded text-[0.8em] font-mono" {...props}>{children}</code>;
+                            ) : <code className="bg-accent/10 text-accent-light px-1.5 py-0.5 rounded-md text-[0.8em] font-mono border border-accent/15" {...props}>{children}</code>;
                           },
-                          img: ({ src, alt }) => <img src={src} alt={alt} className="rounded-xl max-w-full mt-2 border border-border" />,
-                          a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 underline underline-offset-2">{children}</a>,
+                          img: ({ src, alt }) => <img src={src} alt={alt} className="rounded-2xl max-w-full mt-3 border border-border shadow-card" />,
+                          a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent-light hover:text-white underline underline-offset-3 transition-colors">{children}</a>,
                         }}>{msg.content}</ReactMarkdown>
                       </div>
                     )}

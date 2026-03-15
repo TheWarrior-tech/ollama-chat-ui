@@ -2,30 +2,42 @@ import { NextRequest } from 'next/server';
 
 export async function POST(req: NextRequest) {
   const { model, messages } = await req.json();
-  const host = process.env.OLLAMA_HOST || 'http://host.docker.internal:11434';
+  const hosts = [
+    process.env.OLLAMA_HOST,
+    'http://host.docker.internal:11434',
+    'http://172.17.0.1:11434',
+    'http://172.20.0.1:11434',
+  ].filter(Boolean) as string[];
 
-  const upstream = await fetch(`${host}/api/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, messages, stream: true }),
-  });
+  let upstream: Response | null = null;
+  for (const host of hosts) {
+    try {
+      const res = await fetch(`${host}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model, messages, stream: true }),
+        signal: AbortSignal.timeout(5000),
+      });
+      if (res.ok) { upstream = res; break; }
+    } catch {}
+  }
 
-  if (!upstream.ok || !upstream.body) {
+  if (!upstream?.body) {
     return new Response(JSON.stringify({ error: 'Ollama unreachable' }), { status: 502 });
   }
 
   const encoder = new TextEncoder();
+  const body = upstream.body;
   const readable = new ReadableStream({
     async start(controller) {
-      const reader = upstream.body!.getReader();
+      const reader = body.getReader();
       const decoder = new TextDecoder();
       try {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
           const chunk = decoder.decode(value, { stream: true });
-          const lines = chunk.split('\n').filter(Boolean);
-          for (const line of lines) {
+          for (const line of chunk.split('\n').filter(Boolean)) {
             try {
               const json = JSON.parse(line);
               const thinking = json?.message?.thinking;
@@ -44,10 +56,6 @@ export async function POST(req: NextRequest) {
   });
 
   return new Response(readable, {
-    headers: {
-      'Content-Type': 'text/plain; charset=utf-8',
-      'Cache-Control': 'no-cache',
-      'X-Accel-Buffering': 'no',
-    },
+    headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no' },
   });
 }
