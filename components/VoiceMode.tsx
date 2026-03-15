@@ -12,35 +12,26 @@ type VoiceState = 'idle' | 'listening' | 'thinking' | 'speaking';
 // Strip everything that would be read out literally by the speech synth
 function cleanForSpeech(text: string): string {
   return text
-    // Remove markdown headers
     .replace(/#{1,6}\s+/g, '')
-    // Remove bold/italic markers
     .replace(/\*{1,3}(.*?)\*{1,3}/g, '$1')
     .replace(/_{1,2}(.*?)_{1,2}/g, '$1')
-    // Remove inline code and code blocks
     .replace(/```[\s\S]*?```/g, 'code block omitted')
     .replace(/`([^`]+)`/g, '$1')
-    // Remove all emoji characters (unicode ranges)
-    .replace(/[\u{1F000}-\u{1FFFF}]/gu, '')
-    .replace(/[\u{2600}-\u{27BF}]/gu, '')
-    .replace(/[\u{FE00}-\u{FE0F}]/gu, '')
-    .replace(/[\u{1F900}-\u{1F9FF}]/gu, '')
-    .replace(/[\u{1FA00}-\u{1FA9F}]/gu, '')
-    // Remove bullet points and dashes used as list markers
+    // Emoji removal — avoid \u{} flag which requires es6+ target
+    // Covers the main emoji + symbol unicode ranges via surrogate pairs
+    .replace(/[\uD83C-\uDBFF][\uDC00-\uDFFF]/g, '')  // supplementary plane (emoji)
+    .replace(/[\u2600-\u27BF]/g, '')                  // misc symbols & dingbats
+    .replace(/[\uFE00-\uFE0F]/g, '')                  // variation selectors
+    .replace(/[\u{1F900}-\u{1F9FF}]/gu, '')           // supplemental symbols (safe now with target es2017)
+    .replace(/[\u{1FA00}-\u{1FA9F}]/gu, '')           // chess/other symbols
     .replace(/^\s*[-*•]\s+/gm, '')
     .replace(/^\s*\d+\.\s+/gm, '')
-    // Remove URLs
     .replace(/https?:\/\/\S+/g, '')
-    // Remove citation markers like [1] [2]
     .replace(/\[\d+\]/g, '')
-    // Remove parenthetical asides that look robotic
     .replace(/\([^)]{0,30}\)/g, '')
-    // Collapse multiple newlines into a pause
     .replace(/\n{2,}/g, '. ')
     .replace(/\n/g, ' ')
-    // Collapse multiple spaces
     .replace(/\s{2,}/g, ' ')
-    // Remove trailing/leading whitespace
     .trim();
 }
 
@@ -74,14 +65,12 @@ export default function VoiceMode({ selectedModel, onClose }: Props) {
     if (!cleaned) { startListeningRef.current(); return; }
 
     const utter = new SpeechSynthesisUtterance(cleaned);
-    // Slightly slower than default — more natural, less robotic
     utter.rate = 0.95;
     utter.pitch = 1.0;
     utter.volume = 1;
 
     const setVoice = () => {
       const voices = window.speechSynthesis.getVoices();
-      // Preference order: natural-sounding voices first
       const preferred = voices.find(v =>
         v.name === 'Google UK English Female' ||
         v.name === 'Samantha' ||
@@ -103,7 +92,6 @@ export default function VoiceMode({ selectedModel, onClose }: Props) {
     utter.onstart = () => setState('speaking');
     utter.onend = () => {
       setState('listening');
-      // Small pause before listening again so the mic doesn't pick up the tail
       setTimeout(() => startListeningRef.current(), 400);
     };
     utter.onerror = () => {
@@ -147,13 +135,11 @@ export default function VoiceMode({ selectedModel, onClose }: Props) {
           if (!line.trim()) continue;
           try {
             const j = JSON.parse(line);
-            // Skip thinking tokens entirely for voice
             if (j.content) full += j.content;
           } catch {}
         }
       }
 
-      // Strip any <think>...</think> blocks before speaking
       const withoutThinking = full.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
       setLastResponse(withoutThinking);
       setHistory(h => [...h, { role: 'user', content: text }, { role: 'assistant', content: withoutThinking }]);
@@ -192,7 +178,6 @@ export default function VoiceMode({ selectedModel, onClose }: Props) {
     r.start();
   }, [sendToModel]);
 
-  // Keep the ref up to date so speak() can call latest version
   useEffect(() => { startListeningRef.current = startListening; }, [startListening]);
 
   useEffect(() => {
@@ -233,7 +218,6 @@ export default function VoiceMode({ selectedModel, onClose }: Props) {
           <span className="text-sm font-bold" style={{ color: 'var(--text)' }}>Voice Mode</span>
         </div>
 
-        {/* Orb */}
         <div className="relative flex items-center justify-center">
           {(state === 'listening' || state === 'speaking') && (
             <>
@@ -257,7 +241,6 @@ export default function VoiceMode({ selectedModel, onClose }: Props) {
           </button>
         </div>
 
-        {/* Waveform while speaking */}
         {state === 'speaking' && (
           <div className="flex gap-1 items-center h-8">
             {Array.from({ length: 14 }).map((_, i) => (
