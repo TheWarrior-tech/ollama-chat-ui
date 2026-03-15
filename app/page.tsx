@@ -52,7 +52,6 @@ function HomeInner() {
   const [compactMode, setCompactMode] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const activeConvoRef = useRef<Conversation | null>(null);
-  // Always-fresh ref to conversations — avoids stale closures inside async sendMessage
   const conversationsRef = useRef<Conversation[]>([]);
   const isStreamingRef = useRef(false);
   const webSearchRef = useRef(webSearch);
@@ -151,7 +150,6 @@ function HomeInner() {
   }, []);
 
   const sendMessage = useCallback(async (content: string, attachments?: Attachment[]) => {
-    // Guard at the very top before any async work
     if (isStreamingRef.current) return;
 
     let targetId = activeIdRef.current;
@@ -173,7 +171,6 @@ function HomeInner() {
     let displayContent = content;
     if (attachments?.length) displayContent = content ? `${content}\n\n${attachments.map(a=>`📎 ${a.name}`).join('  ')}` : attachments.map(a=>`📎 ${a.name}`).join('  ');
 
-    // Read from ref — always fresh, never stale
     const currentConvo = conversationsRef.current.find(c=>c.id===targetId) ?? activeConvoRef.current;
     const userMsg: Message = { id:tempUserId, role:'user', content:displayContent, timestamp:Date.now() };
     const aMsg: Message = { id:tempAiId, role:'assistant', content:'', timestamp:Date.now() };
@@ -186,25 +183,33 @@ function HomeInner() {
         .then(r=>r.json()).then(u=>{ if(u.slug){window.history.replaceState({},'',`/${u.slug}/${targetId}`);setConversations(p=>p.map(c=>c.id===targetId?{...c,slug:u.slug,title:u.title}:c));} }).catch(()=>{});
     }
 
+    // Fire-and-forget — never block the send on message persistence
     fetch(`/api/conversations/${targetId}/messages`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:'user',content:displayContent})}).catch(()=>{});
 
     setIsStreaming(true);
     abortRef.current = new AbortController();
 
     try {
-      const memRes = await fetch('/api/memory');
-      const memData = await memRes.json();
-      const memories: string[] = (memData.memories||[]).map((m:any)=>m.content??m);
+      // Isolate memory fetch — a DB failure must NOT kill the whole send
+      let memories: string[] = [];
+      try {
+        const memRes = await fetch('/api/memory');
+        if (memRes.ok) {
+          const memData = await memRes.json();
+          memories = (memData.memories||[]).map((m:any)=>m.content??m);
+        }
+      } catch {}
 
       let sources: any[] = [];
       if (webSearchRef.current) {
-        const sRes = await fetch('/api/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:content}),signal:abortRef.current.signal});
-        const sData = await sRes.json();
-        sources = sData.results||[];
-        if (sources.length) setConversations(p=>p.map(c=>c.id===targetId?{...c,messages:c.messages.map(m=>m.id===tempAiId?{...m,sources}:m)}:c));
+        try {
+          const sRes = await fetch('/api/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:content}),signal:abortRef.current.signal});
+          const sData = await sRes.json();
+          sources = sData.results||[];
+          if (sources.length) setConversations(p=>p.map(c=>c.id===targetId?{...c,messages:c.messages.map(m=>m.id===tempAiId?{...m,sources}:m)}:c));
+        } catch {}
       }
 
-      // Use ref snapshot for prior messages — avoids stale closure
       const convoNow = conversationsRef.current.find(c=>c.id===targetId) ?? activeConvoRef.current;
       const priorMessages = (convoNow?.messages.filter(m=>m.id!==tempAiId&&m.id!==tempUserId)||[]).map(m=>({role:m.role,content:m.content}));
 
