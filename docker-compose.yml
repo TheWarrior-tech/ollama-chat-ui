@@ -1,0 +1,42 @@
+version: '3.9'
+
+services:
+  ollama-chat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ollama-chat
+    ports:
+      - '3000:3000'
+    environment:
+      - OLLAMA_HOST=http://host.docker.internal:11434
+      - STABLE_DIFFUSION_HOST=http://stable-diffusion:7860
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    restart: unless-stopped
+    depends_on:
+      - stable-diffusion
+    networks:
+      - ai-net
+
+  stable-diffusion:
+    image: universumguy/automatic1111-stable-diffusion:latest
+    container_name: stable-diffusion
+    ports:
+      - '7860:7860'
+    volumes:
+      - sd-models:/stable-diffusion-webui/models
+      - sd-outputs:/stable-diffusion-webui/outputs
+    environment:
+      - CLI_ARGS=--api --listen --no-half-vae
+    restart: unless-stopped
+    networks:
+      - ai-net
+
+volumes:
+  sd-models:
+  sd-outputs:
+
+networks:
+  ai-net:
+    driver: bridge
