@@ -15,8 +15,15 @@ export async function POST(req: NextRequest) {
       const res = await fetch(`${host}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model, messages, stream: true }),
-        signal: AbortSignal.timeout(5000),
+        body: JSON.stringify({
+          model,
+          messages,
+          stream: true,
+          options: {
+            num_predict: -1,   // no token limit — let model finish fully
+            temperature: 0.7,
+          },
+        }),
       });
       if (res.ok) { upstream = res; break; }
     } catch {}
@@ -43,7 +50,11 @@ export async function POST(req: NextRequest) {
               const thinking = json?.message?.thinking;
               const content = json?.message?.content;
               if (thinking !== undefined || content !== undefined) {
-                controller.enqueue(encoder.encode(JSON.stringify({ thinking: thinking ?? null, content: content ?? null }) + '\n'));
+                controller.enqueue(
+                  encoder.encode(
+                    JSON.stringify({ thinking: thinking ?? null, content: content ?? null }) + '\n'
+                  )
+                );
               }
             } catch {}
           }
@@ -56,6 +67,10 @@ export async function POST(req: NextRequest) {
   });
 
   return new Response(readable, {
-    headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no' },
+    headers: {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Cache-Control': 'no-cache',
+      'X-Accel-Buffering': 'no',
+    },
   });
 }

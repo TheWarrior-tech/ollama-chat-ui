@@ -51,7 +51,12 @@ export default function Home() {
     abortRef.current = new AbortController();
 
     try {
-      let augmentedContent = content;
+      // Build messages array — use system message for web context instead of polluting user message
+      const priorMessages = (activeConvoRef.current?.messages.filter(m => m.id !== aId) || [])
+        .map(m => ({ role: m.role, content: m.content }));
+
+      let messages: { role: string; content: string }[] = [];
+
       if (webSearch) {
         const sRes = await fetch('/api/search', {
           method: 'POST',
@@ -60,24 +65,46 @@ export default function Home() {
           signal: abortRef.current.signal,
         });
         const sData = await sRes.json();
-        const sources = sData.results || [];
+        const sources: { title: string; url: string; snippet: string }[] = sData.results || [];
+
         if (sources.length > 0) {
           setConversations(p => p.map(c => c.id === activeId
-            ? { ...c, messages: c.messages.map(m => m.id === aId ? { ...m, sources } : m) } : c));
-          const ctx = sources.map((s: any, i: number) => `[${i+1}] ${s.title}\n${s.snippet}\nURL: ${s.url}`).join('\n\n');
-          augmentedContent = `Using the web search results below as context, answer the question. Cite sources inline as [1], [2] etc.\n\nSearch results:\n${ctx}\n\nQuestion: ${content}`;
+            ? { ...c, messages: c.messages.map(m => m.id === aId ? { ...m, sources } : m) }
+            : c
+          ));
+
+          // Inject as system message so it doesn\'t confuse the chat history
+          const systemContext = [
+            'You are a helpful AI assistant with access to current web search results.',
+            'Use the following search results to inform your answer. Cite sources using [1], [2], etc. inline.',
+            'Always give a full, detailed answer. Do not truncate or summarise prematurely.',
+            '',
+            'Search Results:',
+            ...sources.map((s, i) => `[${i+1}] ${s.title}\n${s.snippet}\nSource: ${s.url}`),
+          ].join('\n');
+
+          messages = [
+            { role: 'system', content: systemContext },
+            ...priorMessages,
+            { role: 'user', content },
+          ];
+        } else {
+          messages = [...priorMessages, { role: 'user', content }];
         }
+      } else {
+        messages = [...priorMessages, { role: 'user', content }];
       }
 
-      const history = [...(activeConvoRef.current?.messages.filter(m => m.id !== aId) || []), { role: 'user', content: augmentedContent }];
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: selectedModel, messages: history }),
+        body: JSON.stringify({ model: selectedModel, messages }),
         signal: abortRef.current.signal,
       });
 
-      const reader = res.body!.getReader();
+      if (!res.ok || !res.body) throw new Error('Bad response from chat API');
+
+      const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let fullContent = '', fullThinking = '', leftover = '';
 
@@ -94,16 +121,37 @@ export default function Home() {
             if (json.thinking) fullThinking += json.thinking;
             if (json.content) fullContent += json.content;
             setConversations(p => p.map(c => c.id === activeId
-              ? { ...c, messages: c.messages.map(m => m.id === aId ? { ...m, content: fullContent, thinking: fullThinking || undefined } : m) }
-              : c));
+              ? { ...c, messages: c.messages.map(m => m.id === aId
+                  ? { ...m, content: fullContent, thinking: fullThinking || undefined }
+                  : m) }
+              : c
+            ));
           } catch {}
         }
       }
+
+      // Flush any leftover
+      if (leftover.trim()) {
+        try {
+          const json = JSON.parse(leftover);
+          if (json.content) fullContent += json.content;
+          setConversations(p => p.map(c => c.id === activeId
+            ? { ...c, messages: c.messages.map(m => m.id === aId ? { ...m, content: fullContent } : m) }
+            : c
+          ));
+        } catch {}
+      }
+
     } catch (e: any) {
       if (e?.name !== 'AbortError') {
         setConversations(p => p.map(c => c.id === activeId
-          ? { ...c, messages: c.messages.map(m => m.id === aId && m.content === ''
-              ? { ...m, content: '⚠️ Could not reach Ollama. Run `ollama serve` first.' } : m) } : c));
+          ? { ...c, messages: c.messages.map(m =>
+              m.id === aId && m.content === ''
+                ? { ...m, content: '⚠️ Could not reach Ollama. Make sure it is running with `ollama serve`.' }
+                : m
+            ) }
+          : c
+        ));
       }
     } finally {
       setIsStreaming(false);
@@ -144,9 +192,7 @@ export default function Home() {
               <span className="text-xs font-medium text-text-dim">{selectedModel || 'No model'}</span>
             </div>
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] font-semibold tracking-[0.2em] text-muted uppercase">NeuralChat</span>
-          </div>
+          <span className="text-[10px] font-semibold tracking-[0.2em] text-muted uppercase">NeuralChat</span>
         </header>
         <ChatWindow messages={activeConvo?.messages ?? []} isStreaming={isStreaming} />
         <ChatInput
