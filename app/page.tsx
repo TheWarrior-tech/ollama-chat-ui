@@ -33,9 +33,6 @@ export default function Home() {
 
   useEffect(() => { if (conversations.length === 0) newChat(); }, [models]);
 
-  const updateMessages = (id: string, fn: (msgs: Message[]) => Message[]) =>
-    setConversations(p => p.map(c => c.id === id ? { ...c, messages: fn(c.messages) } : c));
-
   const sendMessage = async (content: string) => {
     if (!activeId || isStreaming) return;
     const userMsg: Message = { id: uuidv4(), role: 'user', content, timestamp: Date.now() };
@@ -47,7 +44,7 @@ export default function Home() {
     } : c));
 
     const aId = uuidv4();
-    const aMsg: Message = { id: aId, role: 'assistant', content: '', timestamp: Date.now() };
+    const aMsg: Message = { id: aId, role: 'assistant', content: '', thinking: undefined, timestamp: Date.now() };
     setConversations(p => p.map(c => c.id === activeId ? { ...c, messages: [...c.messages, userMsg, aMsg] } : c));
 
     setIsStreaming(true);
@@ -64,26 +61,39 @@ export default function Home() {
 
       const reader = res.body!.getReader();
       const decoder = new TextDecoder();
-      let buffer = '';
-
-      const flush = (text: string) => {
-        buffer = text;
-        setConversations(p => p.map(c => c.id === activeId
-          ? { ...c, messages: c.messages.map(m => m.id === aId ? { ...m, content: text } : m) }
-          : c
-        ));
-      };
+      let fullContent = '';
+      let fullThinking = '';
+      let leftover = '';
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        flush(buffer);
+        const text = leftover + decoder.decode(value, { stream: true });
+        const lines = text.split('\n');
+        leftover = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const json = JSON.parse(line);
+            if (json.thinking) fullThinking += json.thinking;
+            if (json.content) fullContent += json.content;
+            setConversations(p => p.map(c => c.id === activeId
+              ? { ...c, messages: c.messages.map(m => m.id === aId
+                  ? { ...m, content: fullContent, thinking: fullThinking || undefined }
+                  : m) }
+              : c
+            ));
+          } catch {}
+        }
       }
     } catch (e: any) {
       if (e?.name !== 'AbortError') {
-        updateMessages(activeId, msgs => msgs.map(m =>
-          m.role === 'assistant' && m.content === '' ? { ...m, content: '⚠️ Could not reach Ollama. Make sure it is running with `ollama serve`.' } : m
+        setConversations(p => p.map(c => c.id === activeId
+          ? { ...c, messages: c.messages.map(m => m.id === aId && m.content === ''
+              ? { ...m, content: '⚠️ Could not reach Ollama. Make sure it is running with `ollama serve`.' }
+              : m) }
+          : c
         ));
       }
     } finally {
@@ -109,7 +119,6 @@ export default function Home() {
         onToggle={() => setSidebarOpen(o => !o)}
       />
       <div className="flex flex-col flex-1 min-w-0 h-full">
-        {/* Top bar */}
         <div className="flex items-center gap-3 px-5 py-3 border-b border-border bg-bg/80 backdrop-blur-sm flex-shrink-0">
           {!sidebarOpen && (
             <button onClick={() => setSidebarOpen(true)} className="p-2 rounded-lg hover:bg-elevated text-muted hover:text-text transition-colors">

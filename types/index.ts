@@ -2,7 +2,7 @@ export interface Message {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
-  isImage: boolean;
+  thinking?: string;
   timestamp: number;
 }
 

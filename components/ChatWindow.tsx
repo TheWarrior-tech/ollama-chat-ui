@@ -5,7 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { nightOwl } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { Bot, User, Copy, Check, Zap } from 'lucide-react';
+import { Bot, User, Copy, Check, ChevronDown, ChevronUp, Brain } from 'lucide-react';
 
 function CopyBtn({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -16,6 +16,33 @@ function CopyBtn({ text }: { text: string }) {
     >
       {copied ? <><Check size={10} className="text-green-400" /> Copied</> : <><Copy size={10} /> Copy</>}
     </button>
+  );
+}
+
+function ThinkingBlock({ thinking, isStreaming }: { thinking: string; isStreaming: boolean }) {
+  const [open, setOpen] = useState(true);
+
+  // Auto-collapse when streaming finishes
+  useEffect(() => { if (!isStreaming) setOpen(false); }, [isStreaming]);
+
+  return (
+    <div className="mb-3 rounded-xl border border-purple-500/20 bg-purple-500/5 overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-purple-500/10 transition-colors"
+      >
+        <Brain size={13} className={`text-purple-400 flex-shrink-0 ${isStreaming ? 'animate-pulse' : ''}`} />
+        <span className="text-xs text-purple-300 font-medium flex-1">
+          {isStreaming ? 'Thinking...' : 'Thought process'}
+        </span>
+        {open ? <ChevronUp size={12} className="text-purple-400" /> : <ChevronDown size={12} className="text-purple-400" />}
+      </button>
+      {open && (
+        <div className="px-4 pb-3 pt-1 text-xs text-purple-200/60 leading-relaxed font-mono whitespace-pre-wrap max-h-64 overflow-y-auto scrollbar-hide border-t border-purple-500/10">
+          {thinking}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -31,11 +58,10 @@ function ThinkingDots() {
 
 export default function ChatWindow({ messages, isStreaming }: { messages: Message[]; isStreaming: boolean }) {
   const bottomRef = useRef<HTMLDivElement>(null);
-  const lastStreaming = messages[messages.length - 1]?.role === 'assistant' && isStreaming;
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages.length, lastStreaming]);
+  }, [messages.length, messages[messages.length - 1]?.content]);
 
   if (messages.length === 0) {
     return (
@@ -63,56 +89,62 @@ export default function ChatWindow({ messages, isStreaming }: { messages: Messag
 
   return (
     <div className="flex-1 overflow-y-auto py-6 space-y-1">
-      {messages.map((msg, i) => (
-        <div key={msg.id} className={`msg-animate px-4 md:px-8 py-3 ${ msg.role === 'user' ? 'flex justify-end' : '' }`}>
-          {msg.role === 'user' ? (
-            <div className="flex items-end gap-3 max-w-[75%]">
-              <div className="bg-elevated border border-border-light rounded-2xl rounded-br-sm px-4 py-3 text-sm text-text leading-relaxed">{msg.content}</div>
-              <div className="w-7 h-7 rounded-full bg-elevated border border-border flex items-center justify-center flex-shrink-0">
-                <User size={13} className="text-muted" />
+      {messages.map((msg, i) => {
+        const isLast = i === messages.length - 1;
+        const isThisStreaming = isLast && isStreaming;
+        return (
+          <div key={msg.id} className={`msg-animate px-4 md:px-8 py-3 ${msg.role === 'user' ? 'flex justify-end' : ''}`}>
+            {msg.role === 'user' ? (
+              <div className="flex items-end gap-3 max-w-[75%]">
+                <div className="bg-elevated border border-border-light rounded-2xl rounded-br-sm px-4 py-3 text-sm text-text leading-relaxed">{msg.content}</div>
+                <div className="w-7 h-7 rounded-full bg-elevated border border-border flex items-center justify-center flex-shrink-0">
+                  <User size={13} className="text-muted" />
+                </div>
               </div>
-            </div>
-          ) : (
-            <div className="flex items-start gap-3 max-w-3xl">
-              <div className="w-7 h-7 rounded-full bg-accent/15 border border-accent/30 flex items-center justify-center flex-shrink-0 mt-0.5">
-                <Bot size={13} className="text-accent" />
+            ) : (
+              <div className="flex items-start gap-3 max-w-3xl">
+                <div className="w-7 h-7 rounded-full bg-accent/15 border border-accent/30 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <Bot size={13} className="text-accent" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  {msg.content === '' && !msg.thinking && isThisStreaming ? (
+                    <ThinkingDots />
+                  ) : (
+                    <>
+                      {msg.thinking && (
+                        <ThinkingBlock thinking={msg.thinking} isStreaming={isThisStreaming && msg.content === ''} />
+                      )}
+                      <div className={`prose text-sm ${isThisStreaming && msg.content !== '' ? 'streaming-cursor' : ''}`}>
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            code({ className, children, ...props }: any) {
+                              const match = /language-(\w+)/.exec(className || '');
+                              const code = String(children).replace(/\n$/, '');
+                              return match ? (
+                                <div className="rounded-xl overflow-hidden border border-border my-3">
+                                  <div className="flex items-center justify-between px-4 py-2 bg-[#0d0d1a] border-b border-border">
+                                    <span className="text-[10px] text-accent font-mono uppercase tracking-widest">{match[1]}</span>
+                                    <CopyBtn text={code} />
+                                  </div>
+                                  <SyntaxHighlighter style={nightOwl} language={match[1]} PreTag="div"
+                                    customStyle={{ margin: 0, background: '#0a0a14', padding: '14px 16px', fontSize: '0.8rem', lineHeight: '1.6' }}
+                                  >{code}</SyntaxHighlighter>
+                                </div>
+                              ) : <code className="bg-[#1e1e2e] text-purple-400 px-1.5 py-0.5 rounded text-[0.8em] font-mono" {...props}>{children}</code>;
+                            },
+                            img: ({ src, alt }) => <img src={src} alt={alt} className="rounded-xl max-w-full mt-2 border border-border" />,
+                          }}
+                        >{msg.content}</ReactMarkdown>
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
-              <div className="flex-1 min-w-0">
-                {msg.content === '' && isStreaming ? (
-                  <ThinkingDots />
-                ) : (
-                  <div className={`prose text-sm ${isStreaming && i === messages.length - 1 ? 'streaming-cursor' : ''}`}>
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      components={{
-                        code({ className, children, ...props }: any) {
-                          const match = /language-(\w+)/.exec(className || '');
-                          const code = String(children).replace(/\n$/, '');
-                          return match ? (
-                            <div className="rounded-xl overflow-hidden border border-border my-3">
-                              <div className="flex items-center justify-between px-4 py-2 bg-[#0d0d1a] border-b border-border">
-                                <span className="text-[10px] text-accent font-mono uppercase tracking-widest">{match[1]}</span>
-                                <CopyBtn text={code} />
-                              </div>
-                              <SyntaxHighlighter
-                                style={nightOwl}
-                                language={match[1]}
-                                PreTag="div"
-                                customStyle={{ margin: 0, background: '#0a0a14', padding: '14px 16px', fontSize: '0.8rem', lineHeight: '1.6' }}
-                              >{code}</SyntaxHighlighter>
-                            </div>
-                          ) : <code className="bg-[#1e1e2e] text-purple-400 px-1.5 py-0.5 rounded text-[0.8em] font-mono" {...props}>{children}</code>;
-                        },
-                        img: ({ src, alt }) => <img src={src} alt={alt} className="rounded-xl max-w-full mt-2 border border-border" />,
-                      }}
-                    >{msg.content}</ReactMarkdown>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      ))}
+            )}
+          </div>
+        );
+      })}
       <div ref={bottomRef} />
     </div>
   );

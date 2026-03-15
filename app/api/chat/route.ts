@@ -31,8 +31,14 @@ export async function POST(req: NextRequest) {
           for (const line of lines) {
             try {
               const json = JSON.parse(line);
-              const token = json?.message?.content;
-              if (token) controller.enqueue(encoder.encode(token));
+              // thinking content (deepseek-r1, qwq, etc)
+              const thinking = json?.message?.thinking;
+              const content = json?.message?.content;
+              // Send as a structured SSE-like JSON token so client can separate thinking vs content
+              if (thinking !== undefined || content !== undefined) {
+                const payload = JSON.stringify({ thinking: thinking ?? null, content: content ?? null });
+                controller.enqueue(encoder.encode(payload + '\n'));
+              }
             } catch {}
           }
         }
