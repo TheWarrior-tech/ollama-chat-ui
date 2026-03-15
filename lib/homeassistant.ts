@@ -1,5 +1,8 @@
 // Home Assistant REST API client
-// All calls go through the server-side proxy to keep the HA token secret.
+// Reads config from DB (via /api/settings) at runtime — no restart needed.
+// Falls back to process.env for Docker/bare-metal setups.
+
+import { prisma } from '@/lib/prisma';
 
 export interface HAEntity {
   entity_id: string;
@@ -15,19 +18,39 @@ export interface HAServiceCall {
   data: Record<string, any>;
 }
 
-const HA_HOST = process.env.HA_HOST || '';
-const HA_TOKEN = process.env.HA_TOKEN || '';
+async function getConfig(): Promise<{ host: string; token: string; enabled: boolean }> {
+  try {
+    const rows = await prisma.setting.findMany({
+      where: { key: { in: ['ha_host', 'ha_token', 'ha_enabled'] } },
+    });
+    const map: Record<string, string> = {};
+    for (const r of rows) map[r.key] = r.value;
 
-function haHeaders() {
+    return {
+      host:    map.ha_host  || process.env.HA_HOST  || '',
+      token:   map.ha_token || process.env.HA_TOKEN || '',
+      enabled: (map.ha_enabled ?? 'true') !== 'false',
+    };
+  } catch {
+    return {
+      host:    process.env.HA_HOST  || '',
+      token:   process.env.HA_TOKEN || '',
+      enabled: true,
+    };
+  }
+}
+
+function haHeaders(token: string) {
   return {
-    Authorization: `Bearer ${HA_TOKEN}`,
+    Authorization: `Bearer ${token}`,
     'Content-Type': 'application/json',
   };
 }
 
 export async function haGetStates(): Promise<HAEntity[]> {
-  const res = await fetch(`${HA_HOST}/api/states`, {
-    headers: haHeaders(),
+  const { host, token } = await getConfig();
+  const res = await fetch(`${host}/api/states`, {
+    headers: haHeaders(token),
     signal: AbortSignal.timeout(8000),
   });
   if (!res.ok) throw new Error(`HA states: ${res.status}`);
@@ -35,8 +58,9 @@ export async function haGetStates(): Promise<HAEntity[]> {
 }
 
 export async function haGetState(entity_id: string): Promise<HAEntity> {
-  const res = await fetch(`${HA_HOST}/api/states/${entity_id}`, {
-    headers: haHeaders(),
+  const { host, token } = await getConfig();
+  const res = await fetch(`${host}/api/states/${entity_id}`, {
+    headers: haHeaders(token),
     signal: AbortSignal.timeout(8000),
   });
   if (!res.ok) throw new Error(`HA state ${entity_id}: ${res.status}`);
@@ -44,9 +68,10 @@ export async function haGetState(entity_id: string): Promise<HAEntity> {
 }
 
 export async function haCallService(call: HAServiceCall): Promise<any> {
-  const res = await fetch(`${HA_HOST}/api/services/${call.domain}/${call.service}`, {
+  const { host, token } = await getConfig();
+  const res = await fetch(`${host}/api/services/${call.domain}/${call.service}`, {
     method: 'POST',
-    headers: haHeaders(),
+    headers: haHeaders(token),
     body: JSON.stringify(call.data),
     signal: AbortSignal.timeout(8000),
   });
@@ -54,6 +79,7 @@ export async function haCallService(call: HAServiceCall): Promise<any> {
   return res.json();
 }
 
-export function isConfigured(): boolean {
-  return Boolean(HA_HOST && HA_TOKEN);
+export async function isConfigured(): Promise<boolean> {
+  const { host, token, enabled } = await getConfig();
+  return enabled && Boolean(host && token);
 }

@@ -8,55 +8,47 @@ datasource db {
 }
 
 model User {
-  id            String         @id @default(cuid())
-  email         String         @unique
+  id            String    @id @default(cuid())
+  email         String    @unique
   name          String?
   password      String
-  createdAt     DateTime       @default(now())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
   conversations Conversation[]
   memories      Memory[]
 }
 
 model Conversation {
   id        String    @id @default(cuid())
-  userId    String
   title     String    @default("New Chat")
-  slug      String?   
-  shared    Boolean   @default(false)
-  pinned    Boolean   @default(false)
-  folderId  String?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+  userId    String
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   messages  Message[]
-  folder    Folder?   @relation(fields: [folderId], references: [id])
-
-  @@unique([userId, slug])
 }
 
 model Message {
   id             String       @id @default(cuid())
-  conversationId String
   role           String
   content        String
   thinking       String?
-  sources        Json?
   createdAt      DateTime     @default(now())
+  conversationId String
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 }
 
 model Memory {
   id        String   @id @default(cuid())
-  userId    String
   content   String
   createdAt DateTime @default(now())
+  userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-model Folder {
-  id            String         @id @default(cuid())
-  userId        String
-  name          String
-  createdAt     DateTime       @default(now())
-  conversations Conversation[]
+// App-wide key-value settings (admin-configured integrations etc.)
+model Setting {
+  key       String   @id
+  value     String   @default("")
+  updatedAt DateTime @updatedAt
 }
