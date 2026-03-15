@@ -8,12 +8,12 @@ datasource db {
 }
 
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
+  id            String         @id @default(cuid())
+  email         String         @unique
   name          String?
   password      String
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
   conversations Conversation[]
   memories      Memory[]
 }
@@ -33,6 +33,7 @@ model Message {
   role           String
   content        String
   thinking       String?
+  sources        String?      // JSON-stringified array of source URLs
   createdAt      DateTime     @default(now())
   conversationId String
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
@@ -46,7 +47,6 @@ model Memory {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-// App-wide key-value settings (admin-configured integrations etc.)
 model Setting {
   key       String   @id
   value     String   @default("")
