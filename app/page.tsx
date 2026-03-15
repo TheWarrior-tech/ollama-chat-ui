@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
@@ -15,15 +15,26 @@ import ModelCompare from '@/components/ModelCompare';
 import FocusMode from '@/components/FocusMode';
 import { Message, Conversation } from '@/types';
 import { slugify } from '@/lib/slug';
-import { Mic, Compass, Search, Download, GitCompare, Maximize2, X } from 'lucide-react';
+import { Mic, Compass, Search, Download, GitCompare, Maximize2 } from 'lucide-react';
 
 interface Attachment { name:string; type:string; content:string; preview?:string; }
 
-export default function Home() {
+// Isolated component so useSearchParams is inside a Suspense boundary
+function ChatParamsReader({ onChat }: { onChat: (id: string) => void }) {
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const chatId = searchParams.get('chat');
+    if (chatId) onChat(chatId);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return null;
+}
+
+function HomeInner() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [pendingChatId, setPendingChatId] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [models, setModels] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState('');
@@ -68,8 +79,7 @@ export default function Home() {
       if (Array.isArray(data)) {
         const convos: Conversation[] = data.map((c:any) => ({ id:c.id, title:c.title, slug:c.slug, model:selectedModel, shared:c.shared, pinned:c.pinned||false, messages:(c.messages||[]).map((m:any)=>({ id:m.id, role:m.role, content:m.content, thinking:m.thinking??undefined, sources:m.sources??undefined, timestamp:new Date(m.createdAt).getTime() })) }));
         setConversations(convos);
-        const chatId = searchParams.get('chat');
-        if (chatId && convos.find(c=>c.id===chatId)) setActiveId(chatId);
+        if (pendingChatId && convos.find(c=>c.id===pendingChatId)) setActiveId(pendingChatId);
         else if (convos.length) setActiveId(convos[0].id);
       }
     }).catch(()=>{});
@@ -110,7 +120,6 @@ export default function Home() {
     if (!convo) return;
     const lastUser = [...convo.messages].reverse().find(m=>m.role==='user');
     if (!lastUser) return;
-    // Remove last AI message and resend
     setConversations(p=>p.map(c=>c.id===activeId?{...c,messages:c.messages.filter(m=>m!==convo.messages[convo.messages.length-1])}:c));
     setTimeout(() => sendMessage(lastUser.content), 50);
   }, [activeId, isStreaming, conversations]);
@@ -184,6 +193,10 @@ export default function Home() {
   return (
     <div className="flex h-screen overflow-hidden" style={{background:'var(--bg)',color:'var(--text)'}}>
       <div className="ambient-bg"/>
+      {/* Read ?chat= param safely inside Suspense */}
+      <Suspense fallback={null}>
+        <ChatParamsReader onChat={setPendingChatId} />
+      </Suspense>
       <Sidebar open={sidebarOpen} conversations={conversations} activeId={activeId} models={models} selectedModel={selectedModel} userName={(session?.user as any)?.name||session?.user?.email||''} onModelChange={setSelectedModel} onSelect={selectChat} onNew={newChat}
         onDelete={async id=>{ await fetch(`/api/conversations/${id}`,{method:'DELETE'}); setConversations(p=>p.filter(c=>c.id!==id)); if(activeId===id) setActiveId(conversations.find(c=>c.id!==id)?.id??null); }}
         onShare={handleShare} onPin={handlePin} onToggle={()=>setSidebarOpen(o=>!o)} onSignOut={()=>signOut({callbackUrl:'/auth'})}
@@ -233,5 +246,17 @@ export default function Home() {
       {voiceMode&&<VoiceMode selectedModel={selectedModel} onClose={()=>setVoiceMode(false)}/>}
       {searchOpen&&<SearchChats conversations={conversations} onSelect={selectChat} onClose={()=>setSearchOpen(false)}/>}
     </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center" style={{background:'var(--bg)'}}>
+        <div className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin" style={{borderColor:'var(--accent)',borderTopColor:'transparent'}}/>
+      </div>
+    }>
+      <HomeInner />
+    </Suspense>
   );
 }
