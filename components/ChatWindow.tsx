@@ -11,9 +11,95 @@ function CopyBtn({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <button onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-      className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-medium text-muted hover:text-text hover:bg-white/8 transition-all">
+      className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-medium text-muted hover:text-text hover:bg-white/5 transition-all">
       {copied ? <><Check size={10} className="text-emerald-400" />Copied</> : <><Copy size={10} />Copy</>}
     </button>
+  );
+}
+
+function SourceFavicon({ url }: { url: string }) {
+  const [err, setErr] = useState(false);
+  let hostname = '';
+  try { hostname = new URL(url).hostname; } catch {}
+  const faviconUrl = `https://www.google.com/s2/favicons?domain=${hostname}&sz=32`;
+  if (err || !hostname) {
+    return (
+      <div className="w-4 h-4 rounded-sm bg-blue-500/20 flex items-center justify-center flex-shrink-0">
+        <Globe size={10} className="text-blue-400" />
+      </div>
+    );
+  }
+  return <img src={faviconUrl} onError={() => setErr(true)} className="w-4 h-4 rounded-sm flex-shrink-0" alt="" />;
+}
+
+function SourcesBlock({ sources }: { sources: { title: string; url: string; snippet: string }[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const preview = sources.slice(0, 3);
+  const rest = sources.slice(3);
+
+  return (
+    <div className="mb-5">
+      {/* Header */}
+      <div className="flex items-center gap-2 mb-3">
+        <Globe size={13} className="text-blue-400" />
+        <span className="text-xs font-semibold text-text-dim">{sources.length} Sources</span>
+      </div>
+
+      {/* Source cards grid — Perplexity style */}
+      <div className="grid grid-cols-3 gap-2 mb-3">
+        {preview.map((s, i) => {
+          let hostname = '';
+          try { hostname = new URL(s.url).hostname.replace('www.', ''); } catch {}
+          return (
+            <a key={i} href={s.url} target="_blank" rel="noopener noreferrer"
+              className="group flex flex-col justify-between p-3 rounded-xl border border-border hover:border-border-med bg-elevated/60 hover:bg-elevated transition-all shadow-card min-h-[80px]">
+              <p className="text-[11px] font-medium text-text-dim group-hover:text-text transition-colors leading-relaxed line-clamp-3">{s.title}</p>
+              <div className="flex items-center gap-1.5 mt-2">
+                <SourceFavicon url={s.url} />
+                <span className="text-[10px] text-muted truncate">{hostname}</span>
+                <ExternalLink size={9} className="text-muted/30 flex-shrink-0 ml-auto group-hover:text-blue-400 transition-colors" />
+              </div>
+            </a>
+          );
+        })}
+
+        {/* +N more card */}
+        {rest.length > 0 && !expanded && (
+          <button onClick={() => setExpanded(true)}
+            className="flex flex-col items-center justify-center p-3 rounded-xl border border-border hover:border-border-med bg-elevated/40 hover:bg-elevated transition-all min-h-[80px] group">
+            <span className="text-lg font-bold text-text-dim group-hover:text-text transition-colors">+{rest.length}</span>
+            <span className="text-[10px] text-muted mt-0.5">more</span>
+          </button>
+        )}
+      </div>
+
+      {/* Expanded sources */}
+      {expanded && rest.length > 0 && (
+        <div className="grid grid-cols-3 gap-2 mb-2">
+          {rest.map((s, i) => {
+            let hostname = '';
+            try { hostname = new URL(s.url).hostname.replace('www.', ''); } catch {}
+            return (
+              <a key={i} href={s.url} target="_blank" rel="noopener noreferrer"
+                className="group flex flex-col justify-between p-3 rounded-xl border border-border hover:border-border-med bg-elevated/60 hover:bg-elevated transition-all shadow-card min-h-[80px]">
+                <p className="text-[11px] font-medium text-text-dim group-hover:text-text transition-colors leading-relaxed line-clamp-3">{s.title}</p>
+                <div className="flex items-center gap-1.5 mt-2">
+                  <SourceFavicon url={s.url} />
+                  <span className="text-[10px] text-muted truncate">{hostname}</span>
+                  <ExternalLink size={9} className="text-muted/30 flex-shrink-0 ml-auto group-hover:text-blue-400 transition-colors" />
+                </div>
+              </a>
+            );
+          })}
+        </div>
+      )}
+
+      {expanded && (
+        <button onClick={() => setExpanded(false)} className="flex items-center gap-1 text-[10px] text-muted hover:text-text-dim transition-colors">
+          <ChevronUp size={11} /> Show less
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -21,53 +107,19 @@ function ThinkingBlock({ thinking, isStreaming }: { thinking: string; isStreamin
   const [open, setOpen] = useState(true);
   useEffect(() => { if (!isStreaming) setTimeout(() => setOpen(false), 600); }, [isStreaming]);
   return (
-    <div className="mb-4 rounded-2xl border border-violet/20 bg-violet/5 overflow-hidden shadow-card">
+    <div className="mb-4 rounded-2xl border border-violet/20 bg-violet/5 overflow-hidden">
       <button onClick={() => setOpen(o => !o)}
         className="w-full flex items-center gap-2.5 px-4 py-3 text-left hover:bg-violet/8 transition-all">
         <div className={`w-5 h-5 rounded-lg bg-violet/20 border border-violet/30 flex items-center justify-center flex-shrink-0 ${isStreaming ? 'animate-pulse' : ''}`}>
           <Brain size={11} className="text-violet-400" />
         </div>
-        <span className="text-xs font-semibold text-violet-300 flex-1">
-          {isStreaming ? 'Reasoning...' : 'View reasoning'}
-        </span>
+        <span className="text-xs font-semibold text-violet-300 flex-1">{isStreaming ? 'Reasoning...' : 'View reasoning'}</span>
         <span className="text-[10px] text-violet-400/50 font-mono">{(thinking.length / 1000).toFixed(1)}k chars</span>
         {open ? <ChevronUp size={12} className="text-violet-400/50" /> : <ChevronDown size={12} className="text-violet-400/50" />}
       </button>
       {open && (
         <div className="px-4 pb-4 pt-2 text-[11px] text-violet-200/40 leading-relaxed font-mono whitespace-pre-wrap max-h-60 overflow-y-auto scrollbar-hide border-t border-violet/10">
           {thinking}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SourcesBlock({ sources }: { sources: { title: string; url: string; snippet: string }[] }) {
-  const [open, setOpen] = useState(true);
-  return (
-    <div className="mb-4 rounded-2xl border border-blue-500/20 bg-blue-500/5 overflow-hidden shadow-card">
-      <button onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center gap-2.5 px-4 py-3 text-left hover:bg-blue-500/8 transition-all">
-        <div className="w-5 h-5 rounded-lg bg-blue-500/20 border border-blue-500/30 flex items-center justify-center flex-shrink-0">
-          <Globe size={11} className="text-blue-400" />
-        </div>
-        <span className="text-xs font-semibold text-blue-300 flex-1">Web Sources</span>
-        <span className="text-[10px] text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full font-medium">{sources.length} results</span>
-        {open ? <ChevronUp size={12} className="text-blue-400/50" /> : <ChevronDown size={12} className="text-blue-400/50" />}
-      </button>
-      {open && (
-        <div className="border-t border-blue-500/10 divide-y divide-blue-500/5">
-          {sources.map((s, i) => (
-            <a key={i} href={s.url} target="_blank" rel="noopener noreferrer"
-              className="flex items-start gap-3 px-4 py-3 hover:bg-blue-500/8 transition-all group">
-              <span className="text-[10px] font-mono text-blue-400/50 mt-0.5 w-5 flex-shrink-0">[{i+1}]</span>
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold text-blue-200 truncate group-hover:text-white transition-colors">{s.title}</p>
-                <p className="text-[10px] text-muted mt-1 line-clamp-2 leading-relaxed">{s.snippet}</p>
-              </div>
-              <ExternalLink size={10} className="text-muted/30 flex-shrink-0 mt-1 group-hover:text-blue-400 transition-colors" />
-            </a>
-          ))}
         </div>
       )}
     </div>
@@ -100,13 +152,12 @@ export default function ChatWindow({ messages, isStreaming }: { messages: Messag
   if (messages.length === 0) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-center px-6 relative">
-        {/* Hero */}
         <div className="relative mb-6">
           <div className="w-20 h-20 rounded-3xl bg-gradient-accent flex items-center justify-center shadow-glow-lg">
             <Bot size={34} className="text-white" />
           </div>
-          <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-emerald-400/20 border-2 border-bg flex items-center justify-center">
-            <div className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+          <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-bg border-2 border-bg flex items-center justify-center">
+            <div className="w-3 h-3 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
           </div>
         </div>
         <h1 className="text-4xl font-bold tracking-tight mb-3">
@@ -155,6 +206,26 @@ export default function ChatWindow({ messages, isStreaming }: { messages: Messag
                     ) : (
                       <div className={`prose text-sm ${streaming && msg.content !== '' ? 'streaming-cursor' : ''}`}>
                         <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+                          // Render [1], [2] etc as superscript citation links
+                          text({ children }: any) {
+                            const str = String(children);
+                            const parts = str.split(/(\[\d+\])/);
+                            if (parts.length === 1) return <>{str}</>;
+                            return <>{parts.map((p, j) => {
+                              const m = p.match(/^\[(\d+)\]$/);
+                              if (m && msg.sources) {
+                                const idx = parseInt(m[1]) - 1;
+                                const src = msg.sources[idx];
+                                return src ? (
+                                  <a key={j} href={src.url} target="_blank" rel="noopener noreferrer"
+                                    className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-blue-500/20 border border-blue-500/30 text-[9px] font-bold text-blue-300 hover:bg-blue-500/40 transition-all mx-0.5 no-underline align-super" style={{textDecoration:'none'}}>
+                                    {m[1]}
+                                  </a>
+                                ) : <span key={j}>{p}</span>;
+                              }
+                              return <span key={j}>{p}</span>;
+                            })}</>;
+                          },
                           code({ className, children, ...props }: any) {
                             const match = /language-(\w+)/.exec(className || '');
                             const code = String(children).replace(/\n$/, '');
