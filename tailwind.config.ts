@@ -1,25 +1,27 @@
 import type { Config } from 'tailwindcss';
-
 const config: Config = {
-  content: [
-    './pages/**/*.{js,ts,jsx,tsx,mdx}',
-    './components/**/*.{js,ts,jsx,tsx,mdx}',
-    './app/**/*.{js,ts,jsx,tsx,mdx}'
-  ],
+  content: ['./pages/**/*.{ts,tsx}', './components/**/*.{ts,tsx}', './app/**/*.{ts,tsx}'],
   theme: {
     extend: {
       colors: {
-        sidebar: '#171717',
-        chat: '#212121',
-        input: '#2f2f2f',
-        accent: '#10a37f',
-        'accent-hover': '#0d8a6b',
-        border: '#383838',
-        muted: '#8e8ea0'
-      }
-    }
+        bg: '#0a0a0a',
+        sidebar: '#0f0f0f',
+        surface: '#141414',
+        elevated: '#1a1a1a',
+        border: '#222222',
+        'border-light': '#2a2a2a',
+        accent: '#7c7cff',
+        'accent-dim': '#5a5aee',
+        muted: '#666',
+        'muted-light': '#888',
+        text: '#e8e8e8',
+        'text-dim': '#aaa',
+      },
+      fontFamily: {
+        mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
+      },
+    },
   },
-  plugins: []
+  plugins: [],
 };
-
 export default config;

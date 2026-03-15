@@ -1,128 +1,89 @@
 'use client';
-
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import Sidebar from '@/components/Sidebar';
 import ChatWindow from '@/components/ChatWindow';
 import ChatInput from '@/components/ChatInput';
-import ModelSelector from '@/components/ModelSelector';
 import { Message, Conversation } from '@/types';
 
 export default function Home() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [models, setModels] = useState<string[]>([]);
-  const [selectedModel, setSelectedModel] = useState<string>('');
+  const [selectedModel, setSelectedModel] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
 
-  const activeConversation = conversations.find(c => c.id === activeId) || null;
+  const activeConvo = conversations.find(c => c.id === activeId) ?? null;
 
   useEffect(() => {
-    fetch('/api/models')
-      .then(r => r.json())
-      .then(data => {
-        const list: string[] = data.models || [];
-        setModels(list);
-        if (list.length > 0) setSelectedModel(list[0]);
-      })
-      .catch(() => setModels([]));
+    fetch('/api/models').then(r => r.json()).then(d => {
+      const list: string[] = d.models || [];
+      setModels(list);
+      if (list.length) setSelectedModel(list[0]);
+    }).catch(() => {});
   }, []);
 
-  const newConversation = useCallback(() => {
+  const newChat = useCallback(() => {
     const id = uuidv4();
-    const convo: Conversation = { id, title: 'New Chat', messages: [], model: selectedModel };
-    setConversations(prev => [convo, ...prev]);
+    setConversations(p => [{ id, title: 'New Chat', messages: [], model: selectedModel }, ...p]);
     setActiveId(id);
   }, [selectedModel]);
 
-  useEffect(() => {
-    if (!activeId && conversations.length === 0) newConversation();
-  }, [models]);
+  useEffect(() => { if (conversations.length === 0) newChat(); }, [models]);
 
-  const sendMessage = async (content: string, isImage: boolean = false) => {
-    if (!activeId) return;
-    const userMsg: Message = { id: uuidv4(), role: 'user', content, isImage: false, timestamp: Date.now() };
+  const updateMessages = (id: string, fn: (msgs: Message[]) => Message[]) =>
+    setConversations(p => p.map(c => c.id === id ? { ...c, messages: fn(c.messages) } : c));
 
-    setConversations(prev => prev.map(c =>
-      c.id === activeId
-        ? { ...c, messages: [...c.messages, userMsg], title: c.title === 'New Chat' ? content.slice(0, 40) : c.title }
-        : c
-    ));
+  const sendMessage = async (content: string) => {
+    if (!activeId || isStreaming) return;
+    const userMsg: Message = { id: uuidv4(), role: 'user', content, timestamp: Date.now() };
 
-    if (isImage) {
-      setIsStreaming(true);
-      try {
-        const res = await fetch('/api/image', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt: content })
-        });
-        const data = await res.json();
-        const assistantMsg: Message = {
-          id: uuidv4(), role: 'assistant',
-          content: data.image ? `![Generated Image](data:image/png;base64,${data.image})` : 'Image generation failed.',
-          isImage: true, timestamp: Date.now()
-        };
-        setConversations(prev => prev.map(c =>
-          c.id === activeId ? { ...c, messages: [...c.messages, assistantMsg] } : c
-        ));
-      } finally {
-        setIsStreaming(false);
-      }
-      return;
-    }
+    setConversations(p => p.map(c => c.id === activeId ? {
+      ...c,
+      messages: [...c.messages, userMsg],
+      title: c.title === 'New Chat' ? content.slice(0, 45) : c.title
+    } : c));
 
-    const assistantMsgId = uuidv4();
-    const assistantMsg: Message = { id: assistantMsgId, role: 'assistant', content: '', isImage: false, timestamp: Date.now() };
-    setConversations(prev => prev.map(c =>
-      c.id === activeId ? { ...c, messages: [...c.messages, assistantMsg] } : c
-    ));
+    const aId = uuidv4();
+    const aMsg: Message = { id: aId, role: 'assistant', content: '', timestamp: Date.now() };
+    setConversations(p => p.map(c => c.id === activeId ? { ...c, messages: [...c.messages, userMsg, aMsg] } : c));
 
     setIsStreaming(true);
     abortRef.current = new AbortController();
 
     try {
-      const convMessages = activeConversation?.messages || [];
-      const history = [...convMessages, userMsg].map(m => ({ role: m.role, content: m.content }));
-
+      const history = [...(activeConvo?.messages || []), userMsg].map(m => ({ role: m.role, content: m.content }));
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model: selectedModel, messages: history }),
-        signal: abortRef.current.signal
+        signal: abortRef.current.signal,
       });
 
-      const reader = res.body?.getReader();
+      const reader = res.body!.getReader();
       const decoder = new TextDecoder();
-      let full = '';
+      let buffer = '';
 
-      while (reader) {
+      const flush = (text: string) => {
+        buffer = text;
+        setConversations(p => p.map(c => c.id === activeId
+          ? { ...c, messages: c.messages.map(m => m.id === aId ? { ...m, content: text } : m) }
+          : c
+        ));
+      };
+
+      while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n').filter(Boolean);
-        for (const line of lines) {
-          try {
-            const json = JSON.parse(line);
-            if (json.message?.content) {
-              full += json.message.content;
-              setConversations(prev => prev.map(c =>
-                c.id === activeId
-                  ? { ...c, messages: c.messages.map(m => m.id === assistantMsgId ? { ...m, content: full } : m) }
-                  : c
-              ));
-            }
-          } catch {}
-        }
+        buffer += decoder.decode(value, { stream: true });
+        flush(buffer);
       }
     } catch (e: any) {
-      if (e.name !== 'AbortError') {
-        setConversations(prev => prev.map(c =>
-          c.id === activeId
-            ? { ...c, messages: c.messages.map(m => m.id === assistantMsgId ? { ...m, content: 'Error connecting to Ollama. Make sure it is running.' } : m) }
-            : c
+      if (e?.name !== 'AbortError') {
+        updateMessages(activeId, msgs => msgs.map(m =>
+          m.role === 'assistant' && m.content === '' ? { ...m, content: '⚠️ Could not reach Ollama. Make sure it is running with `ollama serve`.' } : m
         ));
       }
     } finally {
@@ -130,41 +91,42 @@ export default function Home() {
     }
   };
 
-  const stopStreaming = () => {
-    abortRef.current?.abort();
-    setIsStreaming(false);
-  };
-
-  const deleteConversation = (id: string) => {
-    setConversations(prev => prev.filter(c => c.id !== id));
-    if (activeId === id) {
-      const remaining = conversations.filter(c => c.id !== id);
-      setActiveId(remaining[0]?.id || null);
-    }
-  };
-
   return (
-    <div className="flex h-screen overflow-hidden bg-chat">
+    <div className="flex h-screen overflow-hidden bg-bg text-text">
       <Sidebar
         open={sidebarOpen}
         conversations={conversations}
         activeId={activeId}
-        onSelect={setActiveId}
-        onNew={newConversation}
-        onDelete={deleteConversation}
+        models={models}
+        selectedModel={selectedModel}
+        onModelChange={setSelectedModel}
+        onSelect={id => setActiveId(id)}
+        onNew={newChat}
+        onDelete={id => {
+          setConversations(p => p.filter(c => c.id !== id));
+          if (activeId === id) setActiveId(conversations.find(c => c.id !== id)?.id ?? null);
+        }}
         onToggle={() => setSidebarOpen(o => !o)}
       />
-      <div className="flex flex-col flex-1 min-w-0">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+      <div className="flex flex-col flex-1 min-w-0 h-full">
+        {/* Top bar */}
+        <div className="flex items-center gap-3 px-5 py-3 border-b border-border bg-bg/80 backdrop-blur-sm flex-shrink-0">
           {!sidebarOpen && (
-            <button onClick={() => setSidebarOpen(true)} className="p-2 rounded-lg hover:bg-input text-muted hover:text-white transition">
-              <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" fill="none"/></svg>
+            <button onClick={() => setSidebarOpen(true)} className="p-2 rounded-lg hover:bg-elevated text-muted hover:text-text transition-colors">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
             </button>
           )}
-          <ModelSelector models={models} selected={selectedModel} onChange={setSelectedModel} />
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-accent animate-pulse" />
+            <span className="text-sm text-muted-light font-medium">{selectedModel || 'No model selected'}</span>
+          </div>
         </div>
-        <ChatWindow messages={activeConversation?.messages || []} isStreaming={isStreaming} />
-        <ChatInput onSend={sendMessage} isStreaming={isStreaming} onStop={stopStreaming} />
+        <ChatWindow messages={activeConvo?.messages ?? []} isStreaming={isStreaming} />
+        <ChatInput
+          onSend={sendMessage}
+          isStreaming={isStreaming}
+          onStop={() => { abortRef.current?.abort(); setIsStreaming(false); }}
+        />
       </div>
     </div>
   );
