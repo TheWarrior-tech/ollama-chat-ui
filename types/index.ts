@@ -12,4 +12,5 @@ export interface Conversation {
   title: string;
   messages: Message[];
   model: string;
+  shared?: boolean;
 }
