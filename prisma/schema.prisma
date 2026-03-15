@@ -21,6 +21,10 @@ model User {
 model Conversation {
   id        String    @id @default(cuid())
   title     String    @default("New Chat")
+  slug      String?   // URL-friendly share slug
+  shared    Boolean   @default(false)
+  pinned    Boolean   @default(false)
+  folderId  String?   // optional folder grouping
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   userId    String
