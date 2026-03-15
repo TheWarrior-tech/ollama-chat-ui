@@ -8,6 +8,13 @@ import ChatInput from '@/components/ChatInput';
 import ShareToast, { useShareToast } from '@/components/ShareToast';
 import { Message, Conversation } from '@/types';
 
+interface Attachment {
+  name: string;
+  type: string;
+  content: string;
+  preview?: string;
+}
+
 export default function Home() {
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -72,25 +79,36 @@ export default function Home() {
     shareToast.show(url);
   };
 
-  const sendMessage = async (content: string) => {
+  const sendMessage = async (content: string, attachments?: Attachment[]) => {
     if (!activeId || isStreaming) return;
     const tempUserId = 'temp-user-' + Date.now();
     const tempAiId = 'temp-ai-' + Date.now();
-    const userMsg: Message = { id: tempUserId, role: 'user', content, timestamp: Date.now() };
-    const aMsg: Message = { id: tempAiId, role: 'assistant', content: '', thinking: undefined, sources: undefined, timestamp: Date.now() };
+
+    // Build display content for user message
+    let displayContent = content;
+    if (attachments && attachments.length > 0) {
+      const names = attachments.map(a => `📎 ${a.name}`).join('  ');
+      displayContent = content ? `${content}\n\n${names}` : names;
+    }
+
+    const userMsg: Message = { id: tempUserId, role: 'user', content: displayContent, timestamp: Date.now() };
+    const aMsg: Message = { id: tempAiId, role: 'assistant', content: '', timestamp: Date.now() };
 
     setConversations(p => p.map(c => c.id === activeId ? {
       ...c, messages: [...c.messages, userMsg, aMsg],
-      title: c.title === 'New Chat' ? content.slice(0, 45) : c.title
+      title: c.title === 'New Chat' ? (content || attachments?.[0]?.name || 'New Chat').slice(0, 45) : c.title
     } : c));
 
     if (activeConvo?.title === 'New Chat') {
-      fetch(`/api/conversations/${activeId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: content.slice(0, 45) }) }).catch(() => {});
+      fetch(`/api/conversations/${activeId}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: (content || attachments?.[0]?.name || 'New Chat').slice(0, 45) }),
+      }).catch(() => {});
     }
 
     fetch(`/api/conversations/${activeId}/messages`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ role: 'user', content }),
+      body: JSON.stringify({ role: 'user', content: displayContent }),
     }).catch(() => {});
 
     setIsStreaming(true);
@@ -102,7 +120,6 @@ export default function Home() {
       const memories: string[] = (memData.memories || []).map((m: any) => m.content ?? m);
 
       let sources: any[] = [];
-
       if (webSearch) {
         const sRes = await fetch('/api/search', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -132,10 +149,25 @@ export default function Home() {
           ...sources.map((s: any, i: number) => `[${i+1}] ${s.title}\n${s.snippet}\nURL: ${s.url}`));
       }
 
+      // Build user message content — inject file content as context
+      let userContent = content;
+      if (attachments && attachments.length > 0) {
+        const fileContextParts: string[] = [];
+        for (const a of attachments) {
+          if (a.type.startsWith('image/')) {
+            // For vision models — include as base64 note; plain text fallback for non-vision
+            fileContextParts.push(`[Attached image: ${a.name}]`);
+          } else {
+            fileContextParts.push(`--- File: ${a.name} ---\n${a.content.slice(0, 8000)}\n--- End of file ---`);
+          }
+        }
+        userContent = fileContextParts.join('\n\n') + (content ? '\n\n' + content : '');
+      }
+
       const messages = [
         { role: 'system', content: systemParts.join('\n') },
         ...priorMessages,
-        { role: 'user', content },
+        { role: 'user', content: userContent || content },
       ];
 
       const res = await fetch('/api/chat', {
@@ -221,7 +253,6 @@ export default function Home() {
         onSignOut={() => signOut({ callbackUrl: '/auth' })}
       />
       <div className="flex flex-col flex-1 min-w-0 h-full relative z-10">
-        {/* Header */}
         <header className="flex items-center justify-between px-6 py-3.5 flex-shrink-0 glass" style={{ borderBottom: '1px solid var(--border)' }}>
           <div className="flex items-center gap-3">
             {!sidebarOpen && (
@@ -239,12 +270,9 @@ export default function Home() {
           </div>
           <div className="flex items-center gap-3">
             {activeId && (
-              <button
-                onClick={() => handleShare(activeId)}
+              <button onClick={() => handleShare(activeId)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all"
-                style={{ background: 'var(--elevated)', border: '1px solid var(--border)', color: 'var(--text-dim)' }}
-                title="Share this chat"
-              >
+                style={{ background: 'var(--elevated)', border: '1px solid var(--border)', color: 'var(--text-dim)' }}>
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
                 Share
               </button>
