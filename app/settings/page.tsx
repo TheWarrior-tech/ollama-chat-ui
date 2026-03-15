@@ -2,237 +2,325 @@
 import { useState, useEffect } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, User, Lock, Trash2, Brain, BarChart2, Save, Loader2, AlertTriangle, Plus, X } from 'lucide-react';
+import { ArrowLeft, User, Lock, Trash2, Brain, BarChart2, Save, Loader2, AlertTriangle, Plus, X, Palette, Settings2, MessageSquare } from 'lucide-react';
+import { useTheme } from '@/lib/theme';
+import { Sun, Moon, Monitor } from 'lucide-react';
 
-type Tab = 'profile' | 'memory' | 'stats' | 'danger';
+type Tab = 'profile' | 'appearance' | 'chat' | 'memory' | 'stats' | 'danger';
 
 export default function SettingsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const { theme, setTheme } = useTheme();
   const [tab, setTab] = useState<Tab>('profile');
   const [userData, setUserData] = useState<any>(null);
-  const [memories, setMemories] = useState<{ id: string; content: string; createdAt: string }[]>([]);
+  const [memories, setMemories] = useState<{ id:string; content:string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
   const [newMemory, setNewMemory] = useState('');
 
-  // Profile form
+  // Profile
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
+
+  // Chat preferences (stored in localStorage)
+  const [systemPrompt, setSystemPrompt] = useState('');
+  const [fontSize, setFontSize] = useState('md');
+  const [sendOnEnter, setSendOnEnter] = useState(true);
+  const [showThinking, setShowThinking] = useState(true);
+  const [showTimestamps, setShowTimestamps] = useState(false);
+  const [autoTitle, setAutoTitle] = useState(true);
+  const [chatWidth, setChatWidth] = useState('2xl');
 
   useEffect(() => {
     if (status === 'unauthenticated') router.push('/auth');
   }, [status]);
 
   useEffect(() => {
-    fetch('/api/user').then(r => r.json()).then(d => {
-      setUserData(d);
-      setName(d.name || '');
-      setEmail(d.email || '');
-    });
-    fetch('/api/memory').then(r => r.json()).then(d => setMemories(d.memories || []));
+    fetch('/api/user').then(r=>r.json()).then(d => { setUserData(d); setName(d.name||''); setEmail(d.email||''); });
+    fetch('/api/memory').then(r=>r.json()).then(d => setMemories(d.memories||[]));
+    // Load chat prefs from localStorage
+    const sp = localStorage.getItem('nc-system-prompt') || '';
+    const fs = localStorage.getItem('nc-font-size') || 'md';
+    const se = localStorage.getItem('nc-send-enter') !== 'false';
+    const st = localStorage.getItem('nc-show-thinking') !== 'false';
+    const ts = localStorage.getItem('nc-timestamps') === 'true';
+    const at = localStorage.getItem('nc-auto-title') !== 'false';
+    const cw = localStorage.getItem('nc-chat-width') || '2xl';
+    setSystemPrompt(sp); setFontSize(fs); setSendOnEnter(se); setShowThinking(st); setShowTimestamps(ts); setAutoTitle(at); setChatWidth(cw);
   }, []);
 
   const saveProfile = async () => {
     setLoading(true); setError(''); setSaved(false);
     const res = await fetch('/api/user', {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, email, currentPassword: currentPassword || undefined, newPassword: newPassword || undefined }),
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ name, email, currentPassword:currentPassword||undefined, newPassword:newPassword||undefined }),
     });
     const data = await res.json();
     setLoading(false);
-    if (!res.ok) { setError(data.error || 'Failed to save'); return; }
+    if (!res.ok) { setError(data.error||'Failed to save'); return; }
     setSaved(true); setCurrentPassword(''); setNewPassword('');
     setTimeout(() => setSaved(false), 3000);
   };
 
+  const saveChatPrefs = () => {
+    localStorage.setItem('nc-system-prompt', systemPrompt);
+    localStorage.setItem('nc-font-size', fontSize);
+    localStorage.setItem('nc-send-enter', String(sendOnEnter));
+    localStorage.setItem('nc-show-thinking', String(showThinking));
+    localStorage.setItem('nc-timestamps', String(showTimestamps));
+    localStorage.setItem('nc-auto-title', String(autoTitle));
+    localStorage.setItem('nc-chat-width', chatWidth);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
   const deleteMemory = async (id: string) => {
-    await fetch('/api/memory', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+    await fetch('/api/memory', { method:'DELETE', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id}) });
     setMemories(m => m.filter(x => x.id !== id));
   };
 
   const clearAllMemory = async () => {
-    if (!confirm('Delete all memories? This cannot be undone.')) return;
-    await fetch('/api/memory', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ all: true }) });
+    if (!confirm('Delete all memories?')) return;
+    await fetch('/api/memory', { method:'DELETE', headers:{'Content-Type':'application/json'}, body:JSON.stringify({all:true}) });
     setMemories([]);
   };
 
   const addMemory = async () => {
     if (!newMemory.trim()) return;
-    const res = await fetch('/api/memory', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: newMemory }) });
+    const res = await fetch('/api/memory', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({content:newMemory}) });
     const mem = await res.json();
-    setMemories(m => [{ id: mem.id, content: newMemory, createdAt: mem.createdAt }, ...m]);
+    setMemories(m => [{id:mem.id, content:newMemory}, ...m]);
     setNewMemory('');
   };
 
-  const deleteAccount = async () => {
-    if (!confirm('Permanently delete your account and all data? This CANNOT be undone.')) return;
-    await fetch('/api/user', { method: 'DELETE' });
-    signOut({ callbackUrl: '/auth' });
-  };
-
-  const tabs: { id: Tab; label: string; icon: any }[] = [
-    { id: 'profile', label: 'Profile', icon: User },
-    { id: 'memory', label: 'Memory', icon: Brain },
-    { id: 'stats', label: 'Stats', icon: BarChart2 },
-    { id: 'danger', label: 'Danger Zone', icon: AlertTriangle },
+  const tabs: { id:Tab; label:string; icon:any }[] = [
+    {id:'profile', label:'Profile', icon:User},
+    {id:'appearance', label:'Appearance', icon:Palette},
+    {id:'chat', label:'Chat', icon:MessageSquare},
+    {id:'memory', label:'Memory', icon:Brain},
+    {id:'stats', label:'Stats', icon:BarChart2},
+    {id:'danger', label:'Danger', icon:AlertTriangle},
   ];
 
-  if (status === 'loading') return <div className="min-h-screen bg-bg flex items-center justify-center"><div className="w-8 h-8 rounded-full border-2 border-accent border-t-transparent animate-spin" /></div>;
+  const inputStyle = { background:'var(--elevated)', border:'1px solid var(--border-med)', color:'var(--text)' };
+  const labelStyle = { color:'var(--text-dim)' };
+  const cardStyle = { background:'var(--surface)', border:'1px solid var(--border)' };
+
+  if (status === 'loading') return <div className="min-h-screen flex items-center justify-center" style={{background:'var(--bg)'}}><div className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin" style={{borderColor:'var(--accent)',borderTopColor:'transparent'}} /></div>;
 
   return (
-    <div className="min-h-screen bg-bg text-text">
+    <div className="min-h-screen" style={{ background:'var(--bg)', color:'var(--text)' }}>
       <div className="ambient-bg" />
       <div className="max-w-2xl mx-auto px-4 py-8 relative z-10">
         {/* Header */}
-        <div className="flex items-center gap-4 mb-8">
-          <button onClick={() => router.push('/')} className="p-2 rounded-xl hover:bg-elevated border border-border text-muted hover:text-text transition-all">
+        <div className="flex items-center gap-4 mb-6 slide-up" style={{ opacity:0 }}>
+          <button onClick={() => router.push('/')} className="p-2 rounded-xl transition-all" style={{ background:'var(--elevated)', border:'1px solid var(--border)', color:'var(--muted)' }}>
             <ArrowLeft size={15} />
           </button>
           <div>
-            <h1 className="text-lg font-bold text-white">Account Settings</h1>
-            <p className="text-xs text-muted">{session?.user?.email}</p>
+            <h1 className="text-lg font-bold" style={{ color:'var(--text)' }}>Settings</h1>
+            <p className="text-xs" style={{ color:'var(--muted)' }}>{session?.user?.email}</p>
           </div>
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 mb-6 bg-surface border border-border rounded-2xl p-1">
+        <div className="flex gap-1 mb-6 p-1 rounded-2xl overflow-x-auto scrollbar-hide" style={{ background:'var(--surface)', border:'1px solid var(--border)' }}>
           {tabs.map(t => (
             <button key={t.id} onClick={() => setTab(t.id)}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium transition-all ${
-                tab === t.id ? 'bg-elevated border border-border-med text-white shadow-card' : 'text-muted hover:text-text-dim'
-              } ${t.id === 'danger' ? (tab === t.id ? 'text-red-400' : 'hover:text-red-400') : ''}`}>
+              className="flex items-center gap-1.5 py-2 px-3 rounded-xl text-xs font-medium whitespace-nowrap transition-all"
+              style={{
+                background: tab===t.id ? 'var(--elevated)' : 'transparent',
+                color: tab===t.id ? (t.id==='danger'?'#f87171':'var(--text)') : (t.id==='danger'?'rgba(248,113,113,0.6)':'var(--muted)'),
+                border: tab===t.id ? '1px solid var(--border-med)' : '1px solid transparent',
+              }}>
               <t.icon size={12} />{t.label}
             </button>
           ))}
         </div>
 
-        {/* Profile Tab */}
-        {tab === 'profile' && (
-          <div className="space-y-4">
-            <div className="bg-surface border border-border rounded-2xl p-5 space-y-4">
-              <h2 className="text-sm font-semibold text-white">Personal Info</h2>
-              <div>
-                <label className="text-xs text-muted mb-1.5 block">Display Name</label>
-                <input value={name} onChange={e => setName(e.target.value)}
-                  className="w-full bg-elevated border border-border text-text text-sm rounded-xl px-4 py-2.5 outline-none focus:border-accent/50 transition-all" />
-              </div>
-              <div>
-                <label className="text-xs text-muted mb-1.5 block">Email</label>
-                <input value={email} onChange={e => setEmail(e.target.value)} type="email"
-                  className="w-full bg-elevated border border-border text-text text-sm rounded-xl px-4 py-2.5 outline-none focus:border-accent/50 transition-all" />
-              </div>
+        {/* PROFILE */}
+        {tab==='profile' && (
+          <div className="space-y-4 fade-in">
+            <div className="rounded-2xl p-5 space-y-4" style={cardStyle}>
+              <h2 className="text-sm font-semibold" style={{color:'var(--text)'}}>Personal Info</h2>
+              <div><label className="text-xs mb-1.5 block" style={labelStyle}>Display Name</label>
+                <input value={name} onChange={e=>setName(e.target.value)} className="w-full text-sm rounded-xl px-4 py-2.5 outline-none transition-all" style={inputStyle} /></div>
+              <div><label className="text-xs mb-1.5 block" style={labelStyle}>Email</label>
+                <input value={email} onChange={e=>setEmail(e.target.value)} type="email" className="w-full text-sm rounded-xl px-4 py-2.5 outline-none transition-all" style={inputStyle} /></div>
             </div>
-            <div className="bg-surface border border-border rounded-2xl p-5 space-y-4">
-              <h2 className="text-sm font-semibold text-white flex items-center gap-2"><Lock size={13} />Change Password</h2>
-              <div>
-                <label className="text-xs text-muted mb-1.5 block">Current Password</label>
-                <input value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} type="password" placeholder="Leave blank to keep current"
-                  className="w-full bg-elevated border border-border text-text text-sm rounded-xl px-4 py-2.5 outline-none focus:border-accent/50 transition-all placeholder-muted" />
-              </div>
-              <div>
-                <label className="text-xs text-muted mb-1.5 block">New Password</label>
-                <input value={newPassword} onChange={e => setNewPassword(e.target.value)} type="password" placeholder="Min 6 characters"
-                  className="w-full bg-elevated border border-border text-text text-sm rounded-xl px-4 py-2.5 outline-none focus:border-accent/50 transition-all placeholder-muted" />
-              </div>
+            <div className="rounded-2xl p-5 space-y-4" style={cardStyle}>
+              <h2 className="text-sm font-semibold flex items-center gap-2" style={{color:'var(--text)'}}><Lock size={13}/>Change Password</h2>
+              <div><label className="text-xs mb-1.5 block" style={labelStyle}>Current Password</label>
+                <input value={currentPassword} onChange={e=>setCurrentPassword(e.target.value)} type="password" placeholder="Leave blank to keep" className="w-full text-sm rounded-xl px-4 py-2.5 outline-none transition-all" style={inputStyle} /></div>
+              <div><label className="text-xs mb-1.5 block" style={labelStyle}>New Password</label>
+                <input value={newPassword} onChange={e=>setNewPassword(e.target.value)} type="password" placeholder="Min 6 characters" className="w-full text-sm rounded-xl px-4 py-2.5 outline-none transition-all" style={inputStyle} /></div>
             </div>
-            {error && <p className="text-red-400 text-xs bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-2.5">{error}</p>}
+            {error && <p className="text-xs px-4 py-2.5 rounded-xl" style={{color:'#f87171',background:'rgba(239,68,68,0.1)',border:'1px solid rgba(239,68,68,0.2)'}}>{error}</p>}
             <button onClick={saveProfile} disabled={loading}
-              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-accent text-white text-sm font-semibold shadow-glow-md hover:shadow-glow-lg transition-all disabled:opacity-60">
-              {loading ? <Loader2 size={15} className="animate-spin" /> : saved ? '✓ Saved!' : <><Save size={14} /> Save Changes</>}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-white text-sm font-semibold transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60"
+              style={{background:'linear-gradient(135deg,#6366f1,#8b5cf6)',boxShadow:'var(--glow-md)'}}>
+              {loading?<Loader2 size={15} className="animate-spin"/>:saved?'✓ Saved!':<><Save size={14}/>Save Changes</>}
             </button>
           </div>
         )}
 
-        {/* Memory Tab */}
-        {tab === 'memory' && (
-          <div className="space-y-4">
-            <div className="bg-surface border border-border rounded-2xl p-5">
+        {/* APPEARANCE */}
+        {tab==='appearance' && (
+          <div className="space-y-4 fade-in">
+            <div className="rounded-2xl p-5 space-y-4" style={cardStyle}>
+              <h2 className="text-sm font-semibold" style={{color:'var(--text)'}}>Theme</h2>
+              <div className="grid grid-cols-3 gap-2">
+                {([['dark','Dark',Moon],['light','Light',Sun],['system','System',Monitor]] as const).map(([v,l,Icon]) => (
+                  <button key={v} onClick={()=>setTheme(v)}
+                    className="flex flex-col items-center gap-2 py-4 rounded-2xl transition-all"
+                    style={{
+                      background: theme===v ? 'var(--elevated)' : 'transparent',
+                      border: theme===v ? '1px solid var(--accent)' : '1px solid var(--border)',
+                      color: theme===v ? 'var(--accent-light)' : 'var(--muted)',
+                    }}>
+                    <Icon size={18} />
+                    <span className="text-xs font-medium">{l}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-2xl p-5 space-y-4" style={cardStyle}>
+              <h2 className="text-sm font-semibold" style={{color:'var(--text)'}}>Chat Width</h2>
+              <div className="grid grid-cols-3 gap-2">
+                {([['xl','Narrow'],['2xl','Default'],['4xl','Wide']] as const).map(([v,l]) => (
+                  <button key={v} onClick={()=>setChatWidth(v)}
+                    className="py-2.5 rounded-xl text-xs font-medium transition-all"
+                    style={{ background:chatWidth===v?'var(--elevated)':'transparent', border:chatWidth===v?'1px solid var(--accent)':'1px solid var(--border)', color:chatWidth===v?'var(--accent-light)':'var(--muted)' }}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-2xl p-5 space-y-4" style={cardStyle}>
+              <h2 className="text-sm font-semibold" style={{color:'var(--text)'}}>Font Size</h2>
+              <div className="grid grid-cols-3 gap-2">
+                {([['sm','Small'],['md','Medium'],['lg','Large']] as const).map(([v,l]) => (
+                  <button key={v} onClick={()=>setFontSize(v)}
+                    className="py-2.5 rounded-xl text-xs font-medium transition-all"
+                    style={{ background:fontSize===v?'var(--elevated)':'transparent', border:fontSize===v?'1px solid var(--accent)':'1px solid var(--border)', color:fontSize===v?'var(--accent-light)':'var(--muted)' }}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <button onClick={saveChatPrefs}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-white text-sm font-semibold transition-all"
+              style={{background:'linear-gradient(135deg,#6366f1,#8b5cf6)',boxShadow:'var(--glow-md)'}}>
+              {saved?'✓ Saved!':<><Save size={14}/>Save Appearance</>}
+            </button>
+          </div>
+        )}
+
+        {/* CHAT */}
+        {tab==='chat' && (
+          <div className="space-y-4 fade-in">
+            <div className="rounded-2xl p-5 space-y-4" style={cardStyle}>
+              <h2 className="text-sm font-semibold" style={{color:'var(--text)'}}>Custom System Prompt</h2>
+              <p className="text-xs" style={{color:'var(--muted)'}}>Added to every conversation. Override the default AI persona.</p>
+              <textarea value={systemPrompt} onChange={e=>setSystemPrompt(e.target.value)}
+                rows={4} placeholder="e.g. Always respond in Scots English. You are an expert software engineer..."
+                className="w-full text-sm rounded-xl px-4 py-3 outline-none resize-none transition-all"
+                style={{...inputStyle, lineHeight:'1.6'}} />
+            </div>
+            <div className="rounded-2xl p-5 space-y-3" style={cardStyle}>
+              <h2 className="text-sm font-semibold" style={{color:'var(--text)'}}>Behaviour</h2>
+              {[
+                [sendOnEnter, setSendOnEnter, 'Send on Enter', 'Shift+Enter for new line'],
+                [showThinking, setShowThinking, 'Show thinking steps', 'Show <think> blocks from reasoning models'],
+                [showTimestamps, setShowTimestamps, 'Show timestamps', 'Show time on each message'],
+                [autoTitle, setAutoTitle, 'Auto-title chats', 'Generate title from first message'],
+              ].map(([val, setter, label, desc]: any) => (
+                <div key={label} className="flex items-center justify-between py-2" style={{borderBottom:'1px solid var(--border)'}}>
+                  <div>
+                    <p className="text-sm" style={{color:'var(--text)'}}>{label}</p>
+                    <p className="text-xs" style={{color:'var(--muted)'}}>{desc}</p>
+                  </div>
+                  <button onClick={() => setter((v:boolean)=>!v)}
+                    className="relative w-10 h-5.5 rounded-full transition-all flex-shrink-0"
+                    style={{ background: val ? 'var(--accent)' : 'var(--elevated)', border:'1px solid var(--border-med)', width:'40px', height:'22px', position:'relative' }}>
+                    <span className="absolute top-0.5 rounded-full w-4 h-4 transition-all" style={{ background:'white', left: val ? '20px':'2px' }} />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <button onClick={saveChatPrefs}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-white text-sm font-semibold transition-all"
+              style={{background:'linear-gradient(135deg,#6366f1,#8b5cf6)',boxShadow:'var(--glow-md)'}}>
+              {saved?'✓ Saved!':<><Save size={14}/>Save Chat Settings</>}
+            </button>
+          </div>
+        )}
+
+        {/* MEMORY */}
+        {tab==='memory' && (
+          <div className="space-y-4 fade-in">
+            <div className="rounded-2xl p-5" style={cardStyle}>
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-sm font-semibold text-white">Saved Memories</h2>
-                {memories.length > 0 && (
-                  <button onClick={clearAllMemory} className="text-[10px] text-red-400/70 hover:text-red-400 transition-colors">Clear all</button>
-                )}
+                <h2 className="text-sm font-semibold" style={{color:'var(--text)'}}>Saved Memories ({memories.length})</h2>
+                {memories.length>0&&<button onClick={clearAllMemory} className="text-[10px] hover:underline" style={{color:'#f87171'}}>Clear all</button>}
               </div>
-              {/* Add memory */}
               <div className="flex gap-2 mb-4">
-                <input value={newMemory} onChange={e => setNewMemory(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && addMemory()}
-                  placeholder="Add a memory (e.g. I prefer Python)"
-                  className="flex-1 bg-elevated border border-border text-text text-xs rounded-xl px-3 py-2.5 outline-none focus:border-accent/50 transition-all placeholder-muted" />
-                <button onClick={addMemory} className="px-3 py-2.5 rounded-xl bg-gradient-subtle border border-accent/20 text-accent-light hover:border-accent/40 transition-all">
-                  <Plus size={13} />
-                </button>
+                <input value={newMemory} onChange={e=>setNewMemory(e.target.value)}
+                  onKeyDown={e=>e.key==='Enter'&&addMemory()}
+                  placeholder="Add a memory..."
+                  className="flex-1 text-xs rounded-xl px-3 py-2.5 outline-none transition-all" style={inputStyle} />
+                <button onClick={addMemory} className="px-3 py-2.5 rounded-xl transition-all"
+                  style={{background:'var(--elevated)',border:'1px solid var(--border-med)',color:'var(--accent-light)'}}><Plus size={13}/></button>
               </div>
-              {memories.length === 0 ? (
-                <div className="text-center py-8">
-                  <Brain size={24} className="text-muted/30 mx-auto mb-2" />
-                  <p className="text-xs text-muted">No memories yet. The AI saves facts about you automatically.</p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {memories.map(m => (
-                    <div key={m.id} className="flex items-start justify-between gap-3 px-3 py-2.5 rounded-xl bg-elevated border border-border group">
-                      <p className="text-xs text-text-dim flex-1 leading-relaxed">{m.content}</p>
-                      <button onClick={() => deleteMemory(m.id)} className="text-muted opacity-0 group-hover:opacity-100 hover:text-red-400 transition-all flex-shrink-0 mt-0.5">
-                        <X size={12} />
-                      </button>
+              {memories.length===0
+                ? <div className="text-center py-8"><Brain size={24} className="mx-auto mb-2" style={{color:'var(--muted)',opacity:0.3}}/><p className="text-xs" style={{color:'var(--muted)'}}>No memories yet.</p></div>
+                : <div className="space-y-2">{memories.map(m=>(
+                    <div key={m.id} className="flex items-start justify-between gap-3 px-3 py-2.5 rounded-xl group" style={{background:'var(--elevated)',border:'1px solid var(--border)'}}>
+                      <p className="text-xs flex-1 leading-relaxed" style={{color:'var(--text-dim)'}}>{m.content}</p>
+                      <button onClick={()=>deleteMemory(m.id)} className="opacity-0 group-hover:opacity-100 transition-all" style={{color:'var(--muted)'}} onMouseEnter={e=>e.currentTarget.style.color='#f87171'} onMouseLeave={e=>e.currentTarget.style.color='var(--muted)'}><X size={12}/></button>
                     </div>
-                  ))}
-                </div>
-              )}
+                  ))}</div>
+              }
             </div>
           </div>
         )}
 
-        {/* Stats Tab */}
-        {tab === 'stats' && userData && (
-          <div className="grid grid-cols-2 gap-3">
+        {/* STATS */}
+        {tab==='stats' && userData && (
+          <div className="grid grid-cols-2 gap-3 fade-in">
             {[
-              { label: 'Total Conversations', value: userData.convoCount ?? 0, color: 'text-accent-light' },
-              { label: 'Total Messages', value: userData.msgCount ?? 0, color: 'text-violet-400' },
-              { label: 'Saved Memories', value: userData.memCount ?? 0, color: 'text-emerald-400' },
-              { label: 'Member Since', value: userData.createdAt ? new Date(userData.createdAt).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }) : '-', color: 'text-yellow-400' },
-            ].map((s, i) => (
-              <div key={i} className="bg-surface border border-border rounded-2xl p-5">
-                <p className={`text-2xl font-bold ${s.color} mb-1`}>{s.value}</p>
-                <p className="text-xs text-muted">{s.label}</p>
+              {label:'Conversations', value:userData.convoCount??0, color:'var(--accent-light)'},
+              {label:'Messages Sent', value:userData.msgCount??0, color:'#a78bfa'},
+              {label:'Saved Memories', value:userData.memCount??0, color:'#34d399'},
+              {label:'Member Since', value:userData.createdAt?new Date(userData.createdAt).toLocaleDateString('en-GB',{month:'short',year:'numeric'}):'-', color:'#fbbf24'},
+            ].map((s,i)=>(
+              <div key={i} className="rounded-2xl p-5" style={cardStyle}>
+                <p className="text-2xl font-bold mb-1" style={{color:s.color}}>{s.value}</p>
+                <p className="text-xs" style={{color:'var(--muted)'}}>{s.label}</p>
               </div>
             ))}
           </div>
         )}
 
-        {/* Danger Zone */}
-        {tab === 'danger' && (
-          <div className="bg-red-500/5 border border-red-500/20 rounded-2xl p-5 space-y-4">
-            <div className="flex items-center gap-2 mb-2">
-              <AlertTriangle size={15} className="text-red-400" />
-              <h2 className="text-sm font-semibold text-red-300">Danger Zone</h2>
-            </div>
-            <div className="flex items-center justify-between py-3 border-b border-red-500/10">
-              <div>
-                <p className="text-sm font-medium text-text">Delete all conversations</p>
-                <p className="text-xs text-muted mt-0.5">Permanently removes all chat history</p>
+        {/* DANGER */}
+        {tab==='danger' && (
+          <div className="rounded-2xl p-5 space-y-4 fade-in" style={{background:'rgba(239,68,68,0.04)',border:'1px solid rgba(239,68,68,0.15)'}}>
+            <div className="flex items-center gap-2"><AlertTriangle size={15} style={{color:'#f87171'}}/><h2 className="text-sm font-semibold" style={{color:'#fca5a5'}}>Danger Zone</h2></div>
+            {[
+              {label:'Delete all conversations', desc:'Permanently removes all chat history', action:async()=>{ if(!confirm('Delete all conversations?'))return; await fetch('/api/conversations',{method:'DELETE'}).catch(()=>{}); }},
+              {label:'Clear all memories', desc:'Wipe everything the AI knows about you', action:clearAllMemory},
+              {label:'Delete account', desc:'Permanently deletes your account and all data', action:async()=>{ if(!confirm('Permanently delete account? This CANNOT be undone.'))return; await fetch('/api/user',{method:'DELETE'}); signOut({callbackUrl:'/auth'}); }},
+            ].map((item,i)=>(
+              <div key={i} className="flex items-center justify-between py-3" style={{borderBottom:i<2?'1px solid rgba(239,68,68,0.1)':'none'}}>
+                <div><p className="text-sm" style={{color:'var(--text)'}}>{item.label}</p><p className="text-xs" style={{color:'var(--muted)'}}>{item.desc}</p></div>
+                <button onClick={item.action} className="px-3 py-1.5 rounded-xl text-xs font-medium transition-all"
+                  style={{background:'rgba(239,68,68,0.1)',border:'1px solid rgba(239,68,68,0.25)',color:'#f87171'}}>Delete</button>
               </div>
-              <button onClick={async () => {
-                if (!confirm('Delete all conversations?')) return;
-                await fetch('/api/conversations', { method: 'DELETE' }).catch(() => {});
-              }} className="px-3 py-1.5 rounded-xl border border-red-500/30 text-red-400 text-xs font-medium hover:bg-red-500/10 transition-all">
-                Delete All
-              </button>
-            </div>
-            <div className="flex items-center justify-between py-3">
-              <div>
-                <p className="text-sm font-medium text-text">Delete account</p>
-                <p className="text-xs text-muted mt-0.5">Permanently deletes your account and all data</p>
-              </div>
-              <button onClick={deleteAccount} className="px-3 py-1.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-medium hover:bg-red-500/20 transition-all">
-                Delete Account
-              </button>
-            </div>
+            ))}
           </div>
         )}
       </div>
