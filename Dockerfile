@@ -1,8 +1,10 @@
 FROM node:20-alpine
 RUN apk add --no-cache openssl
 WORKDIR /app
-COPY . .
+COPY package*.json ./
 RUN npm install --legacy-peer-deps
+COPY . .
 RUN npx prisma generate
+RUN npm run build
 EXPOSE 3000
-CMD ["sh", "-c", "npx prisma db push --accept-data-loss && npm run dev"]
+CMD ["sh", "-c", "npx prisma db push --accept-data-loss && npm start"]
