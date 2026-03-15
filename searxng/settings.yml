@@ -10,7 +10,7 @@ server:
   port: 8080
   public_instance: false
   limiter: false
-  image_proxy: false
+  image_proxy: true
 
 search:
   safe_search: 0
@@ -23,8 +23,8 @@ search:
     - json
 
 outgoing:
-  request_timeout: 10.0
-  max_request_timeout: 20.0
+  request_timeout: 12.0
+  max_request_timeout: 25.0
   useragent_suffix: ""
   pool_connections: 100
   pool_maxsize: 20
@@ -36,10 +36,17 @@ engines:
     shortcut: g
     use_mobile_ui: false
     disabled: false
+    categories: [general, news]
 
   - name: bing
     engine: bing
     shortcut: b
+    disabled: false
+    categories: [general, news]
+
+  - name: bing news
+    engine: bing_news
+    shortcut: bn
     disabled: false
 
   - name: duckduckgo
@@ -47,16 +54,20 @@ engines:
     shortcut: d
     disabled: false
 
+  - name: duckduckgo news
+    engine: duckduckgo_news
+    shortcut: dn
+    disabled: false
+
+  - name: google news
+    engine: google_news
+    shortcut: gn
+    disabled: false
+
   - name: wikipedia
     engine: wikipedia
     shortcut: w
     disabled: false
-
-  - name: openweathermap
-    engine: openweathermap
-    shortcut: owm
-    api_key: !!
-    disabled: true
 
   - name: wolframalpha
     engine: wolframalpha webapp
@@ -67,8 +78,21 @@ engines:
     engine: brave
     shortcut: br
     disabled: false
+    categories: [general, news]
+
+  - name: google images
+    engine: google_images
+    shortcut: gi
+    disabled: false
+
+  - name: bing images
+    engine: bing_images
+    shortcut: bi
+    disabled: false
 
 ui:
   static_use_hash: true
   default_theme: simple
   center_alignment: true
+  infinite_scroll: false
+  default_locale: en
