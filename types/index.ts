@@ -3,6 +3,7 @@ export interface Message {
   role: 'user' | 'assistant' | 'system';
   content: string;
   thinking?: string;
+  sources?: { title: string; url: string; snippet: string }[];
   timestamp: number;
 }
 

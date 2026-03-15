@@ -13,9 +13,12 @@ export default function Home() {
   const [selectedModel, setSelectedModel] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [webSearch, setWebSearch] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const activeConvoRef = useRef<Conversation | null>(null);
 
   const activeConvo = conversations.find(c => c.id === activeId) ?? null;
+  activeConvoRef.current = activeConvo;
 
   useEffect(() => {
     fetch('/api/models').then(r => r.json()).then(d => {
@@ -35,23 +38,48 @@ export default function Home() {
 
   const sendMessage = async (content: string) => {
     if (!activeId || isStreaming) return;
-    const userMsg: Message = { id: uuidv4(), role: 'user', content, timestamp: Date.now() };
 
+    const userMsg: Message = { id: uuidv4(), role: 'user', content, timestamp: Date.now() };
+    const aId = uuidv4();
+    const aMsg: Message = { id: aId, role: 'assistant', content: '', thinking: undefined, sources: undefined, timestamp: Date.now() };
+
+    // Add BOTH messages in a single state update — fixes duplicate bug
     setConversations(p => p.map(c => c.id === activeId ? {
       ...c,
-      messages: [...c.messages, userMsg],
+      messages: [...c.messages, userMsg, aMsg],
       title: c.title === 'New Chat' ? content.slice(0, 45) : c.title
     } : c));
-
-    const aId = uuidv4();
-    const aMsg: Message = { id: aId, role: 'assistant', content: '', thinking: undefined, timestamp: Date.now() };
-    setConversations(p => p.map(c => c.id === activeId ? { ...c, messages: [...c.messages, userMsg, aMsg] } : c));
 
     setIsStreaming(true);
     abortRef.current = new AbortController();
 
     try {
-      const history = [...(activeConvo?.messages || []), userMsg].map(m => ({ role: m.role, content: m.content }));
+      // Web search: fetch sources first, inject into context
+      let sources: { title: string; url: string; snippet: string }[] | undefined;
+      let augmentedContent = content;
+
+      if (webSearch) {
+        const sRes = await fetch('/api/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: content }),
+          signal: abortRef.current.signal,
+        });
+        const sData = await sRes.json();
+        sources = sData.results || [];
+        if (sources && sources.length > 0) {
+          const ctx = sources.map((s, i) => `[${i+1}] ${s.title}\n${s.snippet}\nURL: ${s.url}`).join('\n\n');
+          augmentedContent = `Answer the following using the web search results below as context. Cite sources as [1], [2] etc.\n\nSearch results:\n${ctx}\n\nQuestion: ${content}`;
+          // Show sources on assistant message immediately
+          setConversations(p => p.map(c => c.id === activeId
+            ? { ...c, messages: c.messages.map(m => m.id === aId ? { ...m, sources } : m) }
+            : c
+          ));
+        }
+      }
+
+      const history = [...(activeConvoRef.current?.messages.filter(m => m.id !== aId) || []), { role: 'user', content: augmentedContent }];
+
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -71,7 +99,6 @@ export default function Home() {
         const text = leftover + decoder.decode(value, { stream: true });
         const lines = text.split('\n');
         leftover = lines.pop() ?? '';
-
         for (const line of lines) {
           if (!line.trim()) continue;
           try {
@@ -119,15 +146,17 @@ export default function Home() {
         onToggle={() => setSidebarOpen(o => !o)}
       />
       <div className="flex flex-col flex-1 min-w-0 h-full">
-        <div className="flex items-center gap-3 px-5 py-3 border-b border-border bg-bg/80 backdrop-blur-sm flex-shrink-0">
-          {!sidebarOpen && (
-            <button onClick={() => setSidebarOpen(true)} className="p-2 rounded-lg hover:bg-elevated text-muted hover:text-text transition-colors">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-            </button>
-          )}
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-accent animate-pulse" />
-            <span className="text-sm text-muted-light font-medium">{selectedModel || 'No model selected'}</span>
+        <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-border bg-bg/90 backdrop-blur-md flex-shrink-0">
+          <div className="flex items-center gap-3">
+            {!sidebarOpen && (
+              <button onClick={() => setSidebarOpen(true)} className="p-2 rounded-lg hover:bg-surface text-muted hover:text-text transition-colors">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+              </button>
+            )}
+            <div className="flex items-center gap-1.5">
+              <div className="w-1.5 h-1.5 rounded-full bg-green-400 shadow-[0_0_6px_rgba(74,222,128,0.8)]" />
+              <span className="text-xs text-muted font-medium">{selectedModel || 'No model'}</span>
+            </div>
           </div>
         </div>
         <ChatWindow messages={activeConvo?.messages ?? []} isStreaming={isStreaming} />
@@ -135,6 +164,8 @@ export default function Home() {
           onSend={sendMessage}
           isStreaming={isStreaming}
           onStop={() => { abortRef.current?.abort(); setIsStreaming(false); }}
+          webSearch={webSearch}
+          onToggleWeb={() => setWebSearch(w => !w)}
         />
       </div>
     </div>
