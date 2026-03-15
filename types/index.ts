@@ -10,7 +10,9 @@ export interface Message {
 export interface Conversation {
   id: string;
   title: string;
+  slug?: string;
   messages: Message[];
   model: string;
-  shared?: boolean;
+  shared: boolean;
+  pinned: boolean;
 }

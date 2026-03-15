@@ -19,30 +19,44 @@ model User {
 
 model Conversation {
   id        String    @id @default(cuid())
-  title     String    @default("New Chat")
   userId    String
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  messages  Message[]
+  title     String    @default("New Chat")
+  slug      String?   
+  shared    Boolean   @default(false)
+  pinned    Boolean   @default(false)
+  folderId  String?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
-  shared    Boolean   @default(false)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages  Message[]
+  folder    Folder?   @relation(fields: [folderId], references: [id])
+
+  @@unique([userId, slug])
 }
 
 model Message {
   id             String       @id @default(cuid())
-  role           String
-  content        String       @db.Text
-  thinking       String?      @db.Text
-  sources        Json?
   conversationId String
-  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String
+  content        String
+  thinking       String?
+  sources        Json?
   createdAt      DateTime     @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 }
 
 model Memory {
   id        String   @id @default(cuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  content   String   @db.Text
+  content   String
   createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Folder {
+  id            String         @id @default(cuid())
+  userId        String
+  name          String
+  createdAt     DateTime       @default(now())
+  conversations Conversation[]
 }

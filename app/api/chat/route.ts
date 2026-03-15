@@ -1,76 +1,63 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
 export async function POST(req: NextRequest) {
-  const { model, messages } = await req.json();
-  const hosts = [
-    process.env.OLLAMA_HOST,
-    'http://host.docker.internal:11434',
-    'http://172.17.0.1:11434',
-    'http://172.20.0.1:11434',
-  ].filter(Boolean) as string[];
+  const { model, messages, systemPrompt } = await req.json();
+  const ollamaHost = process.env.OLLAMA_HOST || 'http://host.docker.internal:11434';
 
-  let upstream: Response | null = null;
-  for (const host of hosts) {
-    try {
-      const res = await fetch(`${host}/api/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model,
-          messages,
-          stream: true,
-          options: {
-            num_predict: -1,   // no token limit — let model finish fully
-            temperature: 0.7,
-          },
-        }),
-      });
-      if (res.ok) { upstream = res; break; }
-    } catch {}
-  }
+  // Build final messages — inject custom system prompt if provided, else use passed system message
+  const finalMessages = systemPrompt
+    ? [{ role: 'system', content: systemPrompt }, ...messages.filter((m: any) => m.role !== 'system')]
+    : messages;
 
-  if (!upstream?.body) {
-    return new Response(JSON.stringify({ error: 'Ollama unreachable' }), { status: 502 });
-  }
+  try {
+    const res = await fetch(`${ollamaHost}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, messages: finalMessages, stream: true }),
+    });
 
-  const encoder = new TextEncoder();
-  const body = upstream.body;
-  const readable = new ReadableStream({
-    async start(controller) {
-      const reader = body.getReader();
-      const decoder = new TextDecoder();
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          const chunk = decoder.decode(value, { stream: true });
-          for (const line of chunk.split('\n').filter(Boolean)) {
-            try {
-              const json = JSON.parse(line);
-              const thinking = json?.message?.thinking;
-              const content = json?.message?.content;
-              if (thinking !== undefined || content !== undefined) {
-                controller.enqueue(
-                  encoder.encode(
-                    JSON.stringify({ thinking: thinking ?? null, content: content ?? null }) + '\n'
-                  )
-                );
-              }
-            } catch {}
+    if (!res.ok) {
+      return NextResponse.json({ error: `Ollama error: ${res.status}` }, { status: res.status });
+    }
+
+    const stream = new ReadableStream({
+      async start(controller) {
+        const reader = res.body!.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() ?? '';
+            for (const line of lines) {
+              if (!line.trim()) continue;
+              try {
+                const json = JSON.parse(line);
+                const content = json.message?.content || '';
+                // Detect <think> blocks for reasoning models
+                const thinkMatch = content.match(/<think>([\s\S]*?)<\/think>/);
+                if (thinkMatch) {
+                  controller.enqueue(new TextEncoder().encode(JSON.stringify({ thinking: thinkMatch[1] }) + '\n'));
+                  controller.enqueue(new TextEncoder().encode(JSON.stringify({ content: content.replace(/<think>[\s\S]*?<\/think>/g, '') }) + '\n'));
+                } else {
+                  controller.enqueue(new TextEncoder().encode(JSON.stringify({ content }) + '\n'));
+                }
+              } catch {}
+            }
           }
+        } finally {
+          controller.close();
         }
-      } finally {
-        controller.close();
-        reader.releaseLock();
-      }
-    },
-  });
+      },
+    });
 
-  return new Response(readable, {
-    headers: {
-      'Content-Type': 'text/plain; charset=utf-8',
-      'Cache-Control': 'no-cache',
-      'X-Accel-Buffering': 'no',
-    },
-  });
+    return new NextResponse(stream, {
+      headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Transfer-Encoding': 'chunked' },
+    });
+  } catch (e) {
+    return NextResponse.json({ error: 'Cannot connect to Ollama' }, { status: 503 });
+  }
 }
