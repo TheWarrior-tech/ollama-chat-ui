@@ -19,7 +19,6 @@ import { Mic, Compass, Search, Download, GitCompare, Maximize2 } from 'lucide-re
 
 interface Attachment { name:string; type:string; content:string; preview?:string; }
 
-// Isolated component so useSearchParams is inside a Suspense boundary
 function ChatParamsReader({ onChat }: { onChat: (id: string) => void }) {
   const searchParams = useSearchParams();
   useEffect(() => {
@@ -38,6 +37,10 @@ function HomeInner() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [models, setModels] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState('');
+  // Keep a ref so newChat always reads the latest model without needing it as a dep
+  const selectedModelRef = useRef(selectedModel);
+  useEffect(() => { selectedModelRef.current = selectedModel; }, [selectedModel]);
+
   const [isStreaming, setIsStreaming] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [discoverOpen, setDiscoverOpen] = useState(false);
@@ -61,10 +64,34 @@ function HomeInner() {
   useEffect(() => { if (status === 'unauthenticated') router.push('/auth'); }, [status]);
   useEffect(() => { setCompactMode(getCompact()); }, []);
 
+  // newChat defined early with stable ref — no stale closure on selectedModel
+  const newChat = useCallback(async () => {
+    try {
+      const res = await fetch('/api/conversations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: 'New Chat' }),
+      });
+      if (!res.ok) return;
+      const convo = await res.json();
+      const c: Conversation = {
+        id: convo.id, title: convo.title, slug: convo.slug,
+        messages: [], model: selectedModelRef.current, shared: false, pinned: false,
+      };
+      setConversations(p => [c, ...p]);
+      setActiveId(c.id);
+      window.history.pushState({}, '', `/${convo.slug || 'new-chat'}/${convo.id}`);
+    } catch {}
+  }, []); // stable — reads model via ref
+
+  // Keep a stable ref to newChat for keyboard shortcut
+  const newChatRef = useRef(newChat);
+  useEffect(() => { newChatRef.current = newChat; }, [newChat]);
+
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if ((e.metaKey||e.ctrlKey) && e.key==='k') { e.preventDefault(); setSearchOpen(o=>!o); }
-      if ((e.metaKey||e.ctrlKey) && e.key==='n') { e.preventDefault(); newChat(); }
+      if ((e.metaKey||e.ctrlKey) && e.key==='n') { e.preventDefault(); newChatRef.current(); }
       if ((e.metaKey||e.ctrlKey) && e.key==='\\') { e.preventDefault(); setSidebarOpen(o=>!o); }
       if (e.key==='F11') { e.preventDefault(); setFocusMode(o=>!o); }
     };
@@ -77,21 +104,13 @@ function HomeInner() {
     fetch('/api/models').then(r=>r.json()).then(d => { const l=d.models||[]; setModels(l); if (l.length) setSelectedModel(l[0]); }).catch(()=>{});
     fetch('/api/conversations').then(r=>r.json()).then(data => {
       if (Array.isArray(data)) {
-        const convos: Conversation[] = data.map((c:any) => ({ id:c.id, title:c.title, slug:c.slug, model:selectedModel, shared:c.shared, pinned:c.pinned||false, messages:(c.messages||[]).map((m:any)=>({ id:m.id, role:m.role, content:m.content, thinking:m.thinking??undefined, sources:m.sources??undefined, timestamp:new Date(m.createdAt).getTime() })) }));
+        const convos: Conversation[] = data.map((c:any) => ({ id:c.id, title:c.title, slug:c.slug, model:selectedModelRef.current, shared:c.shared, pinned:c.pinned||false, messages:(c.messages||[]).map((m:any)=>({ id:m.id, role:m.role, content:m.content, thinking:m.thinking??undefined, sources:m.sources??undefined, timestamp:new Date(m.createdAt).getTime() })) }));
         setConversations(convos);
         if (pendingChatId && convos.find(c=>c.id===pendingChatId)) setActiveId(pendingChatId);
         else if (convos.length) setActiveId(convos[0].id);
       }
     }).catch(()=>{});
   }, [status]);
-
-  const newChat = useCallback(async () => {
-    const res = await fetch('/api/conversations', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({title:'New Chat'}) });
-    const convo = await res.json();
-    const c: Conversation = { id:convo.id, title:convo.title, slug:convo.slug, messages:[], model:selectedModel, shared:false, pinned:false };
-    setConversations(p=>[c,...p]); setActiveId(c.id);
-    window.history.pushState({}, '', `/${convo.slug||'new-chat'}/${convo.id}`);
-  }, [selectedModel]);
 
   const selectChat = (id: string) => {
     setActiveId(id);
@@ -129,7 +148,7 @@ function HomeInner() {
     if (!targetId) {
       const res = await fetch('/api/conversations', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({title:content.slice(0,45)||'New Chat'}) });
       const convo = await res.json();
-      const c: Conversation = { id:convo.id, title:convo.title, slug:convo.slug, messages:[], model:selectedModel, shared:false, pinned:false };
+      const c: Conversation = { id:convo.id, title:convo.title, slug:convo.slug, messages:[], model:selectedModelRef.current, shared:false, pinned:false };
       setConversations(p=>[c,...p]); setActiveId(convo.id);
       window.history.pushState({}, '', `/${convo.slug||'new-chat'}/${convo.id}`);
       targetId = convo.id;
@@ -166,7 +185,7 @@ function HomeInner() {
       let userContent = content;
       if (attachments?.length) { const parts = attachments.map(a=>a.type.startsWith('image/')?`[Image: ${a.name}]`:`--- ${a.name} ---\n${a.content.slice(0,8000)}\n---`); userContent = parts.join('\n\n')+(content?'\n\n'+content:''); }
       const messages = [{role:'system',content:systemParts.join('\n')},...priorMessages,{role:'user',content:userContent||content}];
-      const res = await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:selectedModel,messages,systemPrompt:getSystemPrompt()||undefined}),signal:abortRef.current.signal});
+      const res = await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:selectedModelRef.current,messages,systemPrompt:getSystemPrompt()||undefined}),signal:abortRef.current.signal});
       if (!res.ok||!res.body) throw new Error('Chat failed');
       const reader = res.body.getReader(); const decoder = new TextDecoder();
       let fullContent='',fullThinking='',leftover='';
@@ -180,7 +199,7 @@ function HomeInner() {
     } catch(e:any) {
       if(e?.name!=='AbortError') setConversations(p=>p.map(c=>c.id===targetId?{...c,messages:c.messages.map(m=>m.id===tempAiId&&m.content===''?{...m,content:'⚠️ Cannot reach Ollama. Run `ollama serve`.'}:m)}:c));
     } finally { setIsStreaming(false); }
-  }, [activeId, isStreaming, selectedModel, webSearch, conversations]);
+  }, [activeId, isStreaming, webSearch, conversations]);
 
   if (status==='loading') return <div className="min-h-screen flex items-center justify-center" style={{background:'var(--bg)'}}><div className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin" style={{borderColor:'var(--accent)',borderTopColor:'transparent'}}/></div>;
   if (status==='unauthenticated') return null;
@@ -193,7 +212,6 @@ function HomeInner() {
   return (
     <div className="flex h-screen overflow-hidden" style={{background:'var(--bg)',color:'var(--text)'}}>
       <div className="ambient-bg"/>
-      {/* Read ?chat= param safely inside Suspense */}
       <Suspense fallback={null}>
         <ChatParamsReader onChat={setPendingChatId} />
       </Suspense>
