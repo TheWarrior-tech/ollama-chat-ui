@@ -37,7 +37,6 @@ function HomeInner() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [models, setModels] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState('');
-  // Keep a ref so newChat always reads the latest model without needing it as a dep
   const selectedModelRef = useRef(selectedModel);
   useEffect(() => { selectedModelRef.current = selectedModel; }, [selectedModel]);
 
@@ -53,6 +52,11 @@ function HomeInner() {
   const [compactMode, setCompactMode] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const activeConvoRef = useRef<Conversation | null>(null);
+  // Always-fresh ref to conversations — avoids stale closures inside async sendMessage
+  const conversationsRef = useRef<Conversation[]>([]);
+  const isStreamingRef = useRef(false);
+  const webSearchRef = useRef(webSearch);
+  const activeIdRef = useRef(activeId);
   const shareToast = useShareToast();
 
   const getSystemPrompt = () => typeof window !== 'undefined' ? localStorage.getItem('nc-system-prompt') || '' : '';
@@ -60,11 +64,14 @@ function HomeInner() {
 
   const activeConvo = conversations.find(c => c.id === activeId) ?? null;
   activeConvoRef.current = activeConvo;
+  conversationsRef.current = conversations;
+  isStreamingRef.current = isStreaming;
+  webSearchRef.current = webSearch;
+  activeIdRef.current = activeId;
 
   useEffect(() => { if (status === 'unauthenticated') router.push('/auth'); }, [status]);
   useEffect(() => { setCompactMode(getCompact()); }, []);
 
-  // newChat defined early with stable ref — no stale closure on selectedModel
   const newChat = useCallback(async () => {
     try {
       const res = await fetch('/api/conversations', {
@@ -82,9 +89,8 @@ function HomeInner() {
       setActiveId(c.id);
       window.history.pushState({}, '', `/${convo.slug || 'new-chat'}/${convo.id}`);
     } catch {}
-  }, []); // stable — reads model via ref
+  }, []);
 
-  // Keep a stable ref to newChat for keyboard shortcut
   const newChatRef = useRef(newChat);
   useEffect(() => { newChatRef.current = newChat; }, [newChat]);
 
@@ -114,12 +120,12 @@ function HomeInner() {
 
   const selectChat = (id: string) => {
     setActiveId(id);
-    const c = conversations.find(x=>x.id===id);
+    const c = conversationsRef.current.find(x=>x.id===id);
     if (c) window.history.pushState({}, '', `/${c.slug||slugify(c.title)}/${c.id}`);
   };
 
   const handleShare = async (id: string) => {
-    const convo = conversations.find(c=>c.id===id);
+    const convo = conversationsRef.current.find(c=>c.id===id);
     await fetch(`/api/conversations/${id}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({shared:true}) });
     setConversations(p=>p.map(c=>c.id===id?{...c,shared:true}:c));
     const slug = convo?.slug||slugify(convo?.title||'chat');
@@ -134,72 +140,117 @@ function HomeInner() {
   };
 
   const handleRegenerate = useCallback(async () => {
-    if (!activeId || isStreaming) return;
-    const convo = conversations.find(c=>c.id===activeId);
+    const currentActiveId = activeIdRef.current;
+    if (!currentActiveId || isStreamingRef.current) return;
+    const convo = conversationsRef.current.find(c=>c.id===currentActiveId);
     if (!convo) return;
     const lastUser = [...convo.messages].reverse().find(m=>m.role==='user');
     if (!lastUser) return;
-    setConversations(p=>p.map(c=>c.id===activeId?{...c,messages:c.messages.filter(m=>m!==convo.messages[convo.messages.length-1])}:c));
+    setConversations(p=>p.map(c=>c.id===currentActiveId?{...c,messages:c.messages.filter(m=>m!==convo.messages[convo.messages.length-1])}:c));
     setTimeout(() => sendMessage(lastUser.content), 50);
-  }, [activeId, isStreaming, conversations]);
+  }, []);
 
   const sendMessage = useCallback(async (content: string, attachments?: Attachment[]) => {
-    let targetId = activeId;
+    // Guard at the very top before any async work
+    if (isStreamingRef.current) return;
+
+    let targetId = activeIdRef.current;
+
     if (!targetId) {
-      const res = await fetch('/api/conversations', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({title:content.slice(0,45)||'New Chat'}) });
-      const convo = await res.json();
-      const c: Conversation = { id:convo.id, title:convo.title, slug:convo.slug, messages:[], model:selectedModelRef.current, shared:false, pinned:false };
-      setConversations(p=>[c,...p]); setActiveId(convo.id);
-      window.history.pushState({}, '', `/${convo.slug||'new-chat'}/${convo.id}`);
-      targetId = convo.id;
+      try {
+        const res = await fetch('/api/conversations', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({title:content.slice(0,45)||'New Chat'}) });
+        if (!res.ok) return;
+        const convo = await res.json();
+        const c: Conversation = { id:convo.id, title:convo.title, slug:convo.slug, messages:[], model:selectedModelRef.current, shared:false, pinned:false };
+        setConversations(p=>[c,...p]);
+        setActiveId(convo.id);
+        window.history.pushState({}, '', `/${convo.slug||'new-chat'}/${convo.id}`);
+        targetId = convo.id;
+      } catch { return; }
     }
-    if (isStreaming) return;
+
     const tempUserId = 'tu-'+Date.now(), tempAiId = 'ta-'+Date.now();
     let displayContent = content;
     if (attachments?.length) displayContent = content ? `${content}\n\n${attachments.map(a=>`📎 ${a.name}`).join('  ')}` : attachments.map(a=>`📎 ${a.name}`).join('  ');
-    const currentConvo = conversations.find(c=>c.id===targetId)??activeConvoRef.current;
+
+    // Read from ref — always fresh, never stale
+    const currentConvo = conversationsRef.current.find(c=>c.id===targetId) ?? activeConvoRef.current;
     const userMsg: Message = { id:tempUserId, role:'user', content:displayContent, timestamp:Date.now() };
     const aMsg: Message = { id:tempAiId, role:'assistant', content:'', timestamp:Date.now() };
     const newTitle = currentConvo?.title==='New Chat' ? (content||attachments?.[0]?.name||'Chat').slice(0,45) : currentConvo?.title;
+
     setConversations(p=>p.map(c=>c.id===targetId?{...c,messages:[...c.messages,userMsg,aMsg],title:newTitle||c.title}:c));
-    if (currentConvo?.title==='New Chat'&&newTitle) {
+
+    if (currentConvo?.title==='New Chat' && newTitle) {
       fetch(`/api/conversations/${targetId}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:newTitle})})
         .then(r=>r.json()).then(u=>{ if(u.slug){window.history.replaceState({},'',`/${u.slug}/${targetId}`);setConversations(p=>p.map(c=>c.id===targetId?{...c,slug:u.slug,title:u.title}:c));} }).catch(()=>{});
     }
+
     fetch(`/api/conversations/${targetId}/messages`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:'user',content:displayContent})}).catch(()=>{});
-    setIsStreaming(true); abortRef.current = new AbortController();
+
+    setIsStreaming(true);
+    abortRef.current = new AbortController();
+
     try {
-      const memRes = await fetch('/api/memory'); const memData = await memRes.json();
+      const memRes = await fetch('/api/memory');
+      const memData = await memRes.json();
       const memories: string[] = (memData.memories||[]).map((m:any)=>m.content??m);
+
       let sources: any[] = [];
-      if (webSearch) {
+      if (webSearchRef.current) {
         const sRes = await fetch('/api/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:content}),signal:abortRef.current.signal});
-        const sData = await sRes.json(); sources = sData.results||[];
+        const sData = await sRes.json();
+        sources = sData.results||[];
         if (sources.length) setConversations(p=>p.map(c=>c.id===targetId?{...c,messages:c.messages.map(m=>m.id===tempAiId?{...m,sources}:m)}:c));
       }
-      const convoNow = conversations.find(c=>c.id===targetId)??activeConvoRef.current;
+
+      // Use ref snapshot for prior messages — avoids stale closure
+      const convoNow = conversationsRef.current.find(c=>c.id===targetId) ?? activeConvoRef.current;
       const priorMessages = (convoNow?.messages.filter(m=>m.id!==tempAiId&&m.id!==tempUserId)||[]).map(m=>({role:m.role,content:m.content}));
+
       const systemParts = ['You are NeuralChat, a helpful and knowledgeable AI assistant.','Always give full, detailed, well-structured answers.'];
       if (memories.length) systemParts.push('','User memories:',...memories.map(m=>`- ${m}`));
       if (sources.length) systemParts.push('','Web results:',...sources.map((s:any,i:number)=>`[${i+1}] ${s.title}\n${s.snippet}\nURL: ${s.url}`));
+
       let userContent = content;
-      if (attachments?.length) { const parts = attachments.map(a=>a.type.startsWith('image/')?`[Image: ${a.name}]`:`--- ${a.name} ---\n${a.content.slice(0,8000)}\n---`); userContent = parts.join('\n\n')+(content?'\n\n'+content:''); }
+      if (attachments?.length) {
+        const parts = attachments.map(a=>a.type.startsWith('image/')?`[Image: ${a.name}]`:`--- ${a.name} ---\n${a.content.slice(0,8000)}\n---`);
+        userContent = parts.join('\n\n')+(content?'\n\n'+content:'');
+      }
+
       const messages = [{role:'system',content:systemParts.join('\n')},...priorMessages,{role:'user',content:userContent||content}];
       const res = await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:selectedModelRef.current,messages,systemPrompt:getSystemPrompt()||undefined}),signal:abortRef.current.signal});
       if (!res.ok||!res.body) throw new Error('Chat failed');
-      const reader = res.body.getReader(); const decoder = new TextDecoder();
-      let fullContent='',fullThinking='',leftover='';
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let fullContent='', fullThinking='', leftover='';
+
       while (true) {
-        const {done,value} = await reader.read(); if (done) break;
-        const text = leftover+decoder.decode(value,{stream:true}); const lines = text.split('\n'); leftover=lines.pop()??'';
-        for (const line of lines) { if (!line.trim()) continue; try { const json=JSON.parse(line); if(json.thinking)fullThinking+=json.thinking; if(json.content)fullContent+=json.content; setConversations(p=>p.map(c=>c.id===targetId?{...c,messages:c.messages.map(m=>m.id===tempAiId?{...m,content:fullContent,thinking:fullThinking||undefined}:m)}:c)); } catch {} }
+        const {done,value} = await reader.read();
+        if (done) break;
+        const text = leftover+decoder.decode(value,{stream:true});
+        const lines = text.split('\n');
+        leftover = lines.pop()??'';
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const json=JSON.parse(line);
+            if(json.thinking) fullThinking+=json.thinking;
+            if(json.content) fullContent+=json.content;
+            setConversations(p=>p.map(c=>c.id===targetId?{...c,messages:c.messages.map(m=>m.id===tempAiId?{...m,content:fullContent,thinking:fullThinking||undefined}:m)}:c));
+          } catch {}
+        }
       }
+
       fetch(`/api/conversations/${targetId}/messages`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:'assistant',content:fullContent,thinking:fullThinking||undefined,sources:sources.length?sources:undefined})}).catch(()=>{});
       if (content.toLowerCase().match(/my name is|i am |i like |i prefer |i use |i work/)) fetch('/api/memory',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:content.slice(0,200)})}).catch(()=>{});
     } catch(e:any) {
       if(e?.name!=='AbortError') setConversations(p=>p.map(c=>c.id===targetId?{...c,messages:c.messages.map(m=>m.id===tempAiId&&m.content===''?{...m,content:'⚠️ Cannot reach Ollama. Run `ollama serve`.'}:m)}:c));
-    } finally { setIsStreaming(false); }
-  }, [activeId, isStreaming, webSearch, conversations]);
+    } finally {
+      setIsStreaming(false);
+    }
+  }, []);
 
   if (status==='loading') return <div className="min-h-screen flex items-center justify-center" style={{background:'var(--bg)'}}><div className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin" style={{borderColor:'var(--accent)',borderTopColor:'transparent'}}/></div>;
   if (status==='unauthenticated') return null;
@@ -216,7 +267,7 @@ function HomeInner() {
         <ChatParamsReader onChat={setPendingChatId} />
       </Suspense>
       <Sidebar open={sidebarOpen} conversations={conversations} activeId={activeId} models={models} selectedModel={selectedModel} userName={(session?.user as any)?.name||session?.user?.email||''} onModelChange={setSelectedModel} onSelect={selectChat} onNew={newChat}
-        onDelete={async id=>{ await fetch(`/api/conversations/${id}`,{method:'DELETE'}); setConversations(p=>p.filter(c=>c.id!==id)); if(activeId===id) setActiveId(conversations.find(c=>c.id!==id)?.id??null); }}
+        onDelete={async id=>{ await fetch(`/api/conversations/${id}`,{method:'DELETE'}); setConversations(p=>p.filter(c=>c.id!==id)); if(activeId===id) setActiveId(conversationsRef.current.find(c=>c.id!==id)?.id??null); }}
         onShare={handleShare} onPin={handlePin} onToggle={()=>setSidebarOpen(o=>!o)} onSignOut={()=>signOut({callbackUrl:'/auth'})}
       />
       <div className="flex flex-col flex-1 min-w-0 h-full relative z-10">
